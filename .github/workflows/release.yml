@@ -1,0 +1,28 @@
+name: Release
+
+# Runs when a tag like v1.2.0 is pushed.
+# It builds Drive.app and adds a zip of it to the GitHub release of that tag.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the app
+        run: make release VERSION="${GITHUB_REF_NAME#v}"
+
+      - name: Add the zip to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Make the release if it is not there yet. It is there already when the tag was made on the GitHub website.
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" build/Drive-*.zip --clobber
