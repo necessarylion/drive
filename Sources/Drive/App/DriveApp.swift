@@ -49,12 +49,13 @@ final class AppContainer {
         let config = AppConfig.live
         let files = FileRepository()
         let signer = AWSSigner()
+        let googleAuth = GoogleAuthRepository(signer: signer)
         let driveService = DriveService(
             config: config, files: files, metadataStore: MetadataRepository(file: config.metadataFile))
         let backupService = BackupService(
             root: driveService.rootFolder, files: files, s3: S3Repository(signer: signer),
-            azure: AzureRepository(signer: signer),
-            keychain: KeychainRepository(service: AppConstants.awsKeychainService))
+            azure: AzureRepository(signer: signer), google: GoogleDriveRepository(auth: googleAuth),
+            googleAuth: googleAuth, keychain: KeychainRepository(service: AppConstants.awsKeychainService))
         drive = DriveController(service: driveService)
         backup = BackupController(service: backupService, drive: drive)
     }

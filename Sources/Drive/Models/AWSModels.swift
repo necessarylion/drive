@@ -6,6 +6,7 @@ nonisolated enum BackupProvider: String, CaseIterable, Identifiable, Sendable {
     case s3 = "aws"
     case gcs
     case azure
+    case googleDrive = "gdrive"
 
     var id: String { rawValue }
 
@@ -14,11 +15,13 @@ nonisolated enum BackupProvider: String, CaseIterable, Identifiable, Sendable {
         case .s3: "AWS S3"
         case .gcs: "Google Cloud Storage"
         case .azure: "Azure Blob Storage"
+        case .googleDrive: "Google Drive"
         }
     }
 }
 
 /// For Azure, `accessKey` is empty and `secretKey` holds the SAS token.
+/// For Google Drive, `accessKey` is empty and `secretKey` holds the refresh token.
 nonisolated struct AWSCredentials: Sendable, Equatable, Codable {
     let accessKey: String
     let secretKey: String
@@ -62,7 +65,7 @@ nonisolated enum AWSError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notConfigured: "Set the bucket first. Open Drive > Settings."
+        case .notConfigured: "Set the bucket or folder first. Open Drive > Settings."
         case .badSettings(let message): message
         case .noCredentials: "No access keys found. Add them in Drive > Settings."
         case .missingKeys: "Fill in the access keys first."
