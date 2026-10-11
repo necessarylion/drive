@@ -12,6 +12,15 @@ struct BrowserView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.background)
+            // ponytail: with the older window look on a newer macOS, the toolbar background of the system starts
+            // about 2 points left of the sidebar edge. So hide it and draw our own bar, which has the right width.
+            // Remove both when the app moves to the new window look.
+            .toolbarBackground(.hidden, for: .windowToolbar)
+            .overlay(alignment: .top) {
+                Divider()
+                    .background(.bar, ignoresSafeAreaEdges: .top)
+                    .allowsHitTesting(false)
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 StatusBar()
             }
