@@ -5,6 +5,8 @@ struct SettingsView: View {
     @State private var accessKey = ""
     @State private var secretKey = ""
     @AppStorage(AppConstants.storageRootKey) private var storageRoot = ""
+    @AppStorage(AppConstants.backupProviderKey) private var provider = BackupProvider.s3
+    @AppStorage(AppConstants.azureAccountKey) private var account = ""
     @AppStorage(AppConstants.awsBucketKey) private var bucket = ""
     @AppStorage(AppConstants.awsRegionKey) private var region = AppConstants.awsDefaultRegion
     @AppStorage(AppConstants.awsPrefixKey) private var prefix = ""
@@ -36,13 +38,25 @@ struct SettingsView: View {
             }
 
             Section {
-                TextField("Bucket", text: $bucket, prompt: Text("my-drive-backup"))
-                TextField("Region", text: $region, prompt: Text(AppConstants.awsDefaultRegion))
-                TextField("Folder in bucket", text: $prefix, prompt: Text("Optional"))
+                Picker("Provider", selection: $provider) {
+                    ForEach(BackupProvider.allCases) { provider in
+                        Text(provider.title)
+                            .tag(provider)
+                    }
+                }
+                .onChange(of: provider, backup.refreshKeys)
+                if provider == .azure {
+                    TextField("Storage account", text: $account, prompt: Text("mydriveaccount"))
+                }
+                TextField(provider == .azure ? "Container" : "Bucket", text: $bucket, prompt: Text("my-drive-backup"))
+                if provider == .s3 {
+                    TextField("Region", text: $region, prompt: Text(AppConstants.awsDefaultRegion))
+                }
+                TextField("Folder in it", text: $prefix, prompt: Text("Optional"))
             } header: {
-                Text("AWS S3 Backup")
+                Text("Backup")
             } footer: {
-                Text("Drive uploads new and changed files by itself when a bucket is set.")
+                Text("Drive uploads new and changed files by itself when a bucket or container is set.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -54,8 +68,12 @@ struct SettingsView: View {
                             .monospaced()
                     }
                 }
-                TextField("Access key ID", text: $accessKey, prompt: Text("AKIA…"))
-                SecureField("Secret access key", text: $secretKey, prompt: Text("Paste it here"))
+                if provider == .azure {
+                    SecureField("SAS token", text: $secretKey, prompt: Text("Paste it here"))
+                } else {
+                    TextField("Access key ID", text: $accessKey, prompt: Text(provider == .s3 ? "AKIA…" : "GOOG…"))
+                    SecureField("Secret access key", text: $secretKey, prompt: Text("Paste it here"))
+                }
                 HStack {
                     Text(backup.connectionResult)
                         .font(.caption)
@@ -71,12 +89,12 @@ struct SettingsView: View {
                     Button("Remove", role: .destructive, action: backup.removeKeys)
                         .disabled(backup.savedKeyHint == nil)
                     Button("Save Keys", action: saveKeys)
-                        .disabled(accessKey.isEmpty || secretKey.isEmpty)
+                        .disabled(secretKey.isEmpty || (accessKey.isEmpty && provider != .azure))
                 }
             } header: {
-                Text("AWS Access Keys")
+                Text("Access Keys")
             } footer: {
-                Text("The keys are kept in the Keychain of this Mac.")
+                Text(keysHelp + " The keys are kept in the Keychain of this Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -84,6 +102,14 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 540)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var keysHelp: String {
+        switch provider {
+        case .s3: "Use the access key of an IAM user."
+        case .gcs: "Use an HMAC key. Make one in Cloud Storage > Settings > Interoperability."
+        case .azure: "Make a SAS token for the container. Allow Read, Add, Create, Write, Delete and List."
+        }
     }
 
     private func chooseFolder() {

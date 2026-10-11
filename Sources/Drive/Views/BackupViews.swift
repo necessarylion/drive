@@ -11,7 +11,7 @@ struct BackupStatusView: View {
             Menu {
                 Button("Back Up Now", systemImage: "arrow.up.circle", action: backup.backUp)
                     .disabled(backup.isRunning)
-                Button("Restore from AWS", systemImage: "arrow.down.circle", action: backup.restore)
+                Button("Restore from Backup", systemImage: "arrow.down.circle", action: backup.restore)
                     .disabled(backup.isRunning)
                 Divider()
                 SettingsLink {
@@ -24,7 +24,7 @@ struct BackupStatusView: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("AWS backup")
+            .help("Backup")
 
             Text(backup.summaryText)
                 .lineLimit(1)
@@ -47,17 +47,17 @@ struct BackupStatusView: View {
             }
         }
         .confirmationDialog(
-            "\(backup.extrasCount) file(s) in S3 are not on this Mac", isPresented: $backup.isExtrasDialogShown
+            "\(backup.extrasCount) file(s) in the backup are not on this Mac", isPresented: $backup.isExtrasDialogShown
         ) {
-            Button("Keep Them in S3", action: backup.backUpAndKeepExtras)
-            Button("Remove Them from S3", role: .destructive, action: backup.backUpAndRemoveExtras)
+            Button("Keep Them in the Backup", action: backup.backUpAndKeepExtras)
+            Button("Remove Them from the Backup", role: .destructive, action: backup.backUpAndRemoveExtras)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(
                 "This happens when you deleted or renamed files here, or when this Mac has not restored yet. "
-                    + "Removing from S3 cannot be undone.")
+                    + "Removing from the backup cannot be undone.")
         }
-        .alert("AWS backup problem", isPresented: $backup.isErrorShown) {
+        .alert("Backup problem", isPresented: $backup.isErrorShown) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(backup.errorMessage)

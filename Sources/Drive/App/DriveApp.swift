@@ -48,10 +48,12 @@ final class AppContainer {
     init() {
         let config = AppConfig.live
         let files = FileRepository()
+        let signer = AWSSigner()
         let driveService = DriveService(
             config: config, files: files, metadataStore: MetadataRepository(file: config.metadataFile))
         let backupService = BackupService(
-            root: driveService.rootFolder, files: files, s3: S3Repository(signer: AWSSigner()),
+            root: driveService.rootFolder, files: files, s3: S3Repository(signer: signer),
+            azure: AzureRepository(signer: signer),
             keychain: KeychainRepository(service: AppConstants.awsKeychainService))
         drive = DriveController(service: driveService)
         backup = BackupController(service: backupService, drive: drive)
@@ -99,7 +101,7 @@ struct DriveCommands: Commands {
         CommandMenu("Backup") {
             Button("Back Up Now", action: backup.backUp)
                 .disabled(backup.isRunning)
-            Button("Restore from AWS", action: backup.restore)
+            Button("Restore from Backup", action: backup.restore)
                 .disabled(backup.isRunning)
             Divider()
             Button(backup.isPaused ? "Resume Backup" : "Pause Backup", action: backup.togglePause)

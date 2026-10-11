@@ -54,7 +54,7 @@ nonisolated struct StorageSlice: Identifiable, Sendable {
     var id: StorageGroup { group }
 }
 
-/// Where a file stands with the AWS backup.
+/// Where a file stands with the backup.
 nonisolated enum SyncState: Sendable {
     case synced, pending, uploading
 }

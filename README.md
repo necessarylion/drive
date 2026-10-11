@@ -5,7 +5,7 @@
 <h1 align="center">Drive</h1>
 
 <p align="center">
-  A native macOS app to keep your files and folders in one place, with a backup to your own AWS S3 bucket.
+  A native macOS app to keep your files and folders in one place, with a backup to your own AWS S3, Google Cloud Storage or Azure bucket.
 </p>
 
 ![The Drive main window](docs/screenshot.png)
@@ -14,7 +14,7 @@
 
 Drive is a file manager for one folder on your Mac. It looks and works like a cloud drive app.
 Your files stay on your Mac, so the app is fast and works offline.
-If you add an S3 bucket, Drive also copies your files there as a backup.
+If you add a bucket, Drive also copies your files there as a backup.
 
 Drive is written in Swift and SwiftUI. It has no third-party dependencies.
 
@@ -30,18 +30,33 @@ Drive is written in Swift and SwiftUI. It has no third-party dependencies.
 - **Viewer window:** open a file in its own window. A PDF gets page thumbnails, zoom, search and print.
 - **Quick Look:** preview a file with ⌘Y.
 - **Menu bar icon:** see the backup state and your recent files without opening the window.
-- **AWS S3 backup:** new and changed files upload by themselves. You can restore them on another Mac.
+- **Cloud backup:** AWS S3, Google Cloud Storage or Azure Blob Storage. New and changed files upload by themselves. You can restore them on another Mac.
 
 ## Download
 
-1. Open the [latest release](https://github.com/necessarylion/drive/releases/latest).
-2. Download `Drive-x.y.z.zip` and open it.
-3. Move `Drive.app` to your Applications folder.
+Paste this line in the Terminal app:
 
-The app is not signed with an Apple Developer ID, so macOS blocks it the first time.
-To allow it:
+```sh
+curl -fsSL https://raw.githubusercontent.com/necessarylion/drive/main/install.sh | sh
+```
 
-1. Open `Drive.app` once. macOS says it cannot open the app.
+It downloads the latest release and puts `Drive.app` in your Applications folder.
+Run the same line again to update.
+
+It works on Apple silicon and Intel Macs with macOS 15 or newer.
+
+### Download by hand
+
+You can also download `Drive-x.y.z.zip` from the
+[latest release](https://github.com/necessarylion/drive/releases/latest) and move `Drive.app`
+to your Applications folder.
+
+### If macOS does not open the app
+
+Drive is not signed with an Apple Developer ID. When you download it with a browser, macOS
+says "Apple could not verify Drive is free of malware" and does not open it. To allow it:
+
+1. Click **Done** in that message.
 2. Open **System Settings > Privacy & Security**.
 3. Scroll down and click **Open Anyway** next to Drive.
 
@@ -50,8 +65,6 @@ Or run this one time in Terminal:
 ```sh
 xattr -dr com.apple.quarantine /Applications/Drive.app
 ```
-
-The download works on Apple silicon and Intel Macs with macOS 15 or newer.
 
 ## Build from source
 
@@ -109,22 +122,46 @@ You can pick another folder in **Drive > Settings > Storage**.
 The change takes effect after you quit and open Drive again.
 Drive does not move files from the old folder to the new one.
 
-## AWS S3 backup
+## Backup
 
 The backup is optional. Drive works without it.
+Pick one provider in **Drive > Settings** (⌘,): AWS S3, Google Cloud Storage or Azure Blob Storage.
 
-### Set it up
+Drive keeps the keys in the Keychain of your Mac. It does not write them to a file.
+Each provider has its own keys.
+
+### Set up AWS S3
 
 1. Create an S3 bucket in the AWS console.
 2. Create an IAM user with an access key. Give it the policy below.
-3. In Drive, open **Drive > Settings** (⌘,).
+3. In Drive, open **Drive > Settings** and pick **AWS S3**.
 4. Type the bucket name and its region.
 5. Paste the access key ID and the secret access key, then click **Save Keys**.
 6. Click **Test Connection**.
 
-Drive keeps the keys in the Keychain of your Mac. It does not write them to a file.
+### Set up Google Cloud Storage
 
-### IAM policy
+1. Create a bucket in the Google Cloud console.
+2. Open **Cloud Storage > Settings > Interoperability** and create an HMAC key.
+   The account of the key needs the **Storage Object Admin** role on the bucket.
+3. In Drive, open **Drive > Settings** and pick **Google Cloud Storage**.
+4. Type the bucket name.
+5. Paste the access key and the secret of the HMAC key, then click **Save Keys**.
+6. Click **Test Connection**.
+
+### Set up Azure Blob Storage
+
+1. Create a storage account and a container in the Azure portal.
+2. Open the container, choose **Shared access tokens**, and make a SAS token.
+   Allow Read, Add, Create, Write, Delete and List. Pick an end date far away.
+3. In Drive, open **Drive > Settings** and pick **Azure Blob Storage**.
+4. Type the storage account name and the container name.
+5. Paste the SAS token, then click **Save Keys**.
+6. Click **Test Connection**.
+
+The SAS token stops working on its end date. Make a new one then and save it again.
+
+### IAM policy for AWS
 
 Replace `my-drive-backup` with the name of your bucket.
 
@@ -149,17 +186,17 @@ Replace `my-drive-backup` with the name of your bucket.
 ### How it works
 
 - Drive uploads a file when it is new, or when the copy on your Mac is newer or has another size.
-- The automatic backup only uploads. It never removes anything from S3.
-- **Backup > Back Up Now** also looks for files that are in S3 but not on your Mac.
-  This happens after a rename or a delete. Drive asks you before it removes them from S3.
-- **Backup > Restore from AWS** downloads the files that are in S3 but not on your Mac.
+- The automatic backup only uploads. It never removes anything from the backup.
+- **Backup > Back Up Now** also looks for files that are in the backup but not on your Mac.
+  This happens after a rename or a delete. Drive asks you before it removes them from the backup.
+- **Backup > Restore from Backup** downloads the files that are in the backup but not on your Mac.
   It never replaces a file on your Mac.
 - The pause button in the status bar stops the automatic backup.
 
 ### Limits
 
 - One file can be at most 5 GB.
-- Bucket names with a dot in them are not supported.
+- Bucket names with a dot or “_” in them are not supported.
 - Stars, pins, folder colors, the trash and empty folders are not backed up.
 - Drive is a backup tool, not a sync tool. It does not merge changes from two Macs.
 - Turn on versioning for your bucket if you want to undo a removed or replaced file.
@@ -171,20 +208,22 @@ The code follows one direction: view → controller → service → repository �
 ```
 Sources/Drive/
   App/           The app entry point. All parts are wired together here.
-  Config/        Where data is stored, and the AWS settings.
+  Config/        Where data is stored, and the backup settings.
   Constants/     Global constants and the colors.
   Models/        Plain data types.
-  Repositories/  All access to the disk, the Keychain and S3.
+  Repositories/  All access to the disk, the Keychain, S3 and Azure.
   Services/      The rules of the drive, the backup, and AWS request signing.
   Controllers/   The state of the windows.
   Views/         SwiftUI views.
-Tests/DriveTests/  Tests for the services and the AWS code.
+Tests/DriveTests/  Tests for the services and the backup code.
 Scripts/           The script that builds the app icon.
 Resources/         Info.plist, the logo and the app icon.
 ```
 
 Requests to S3 are signed in `Services/AWSSigner.swift` with AWS Signature Version 4.
 The tests check the signer against the examples in the AWS documentation.
+Google Cloud Storage takes the same signed requests, so `S3Repository` is used for it too.
+Azure has its own calls in `Repositories/AzureRepository.swift`.
 
 ## Development
 

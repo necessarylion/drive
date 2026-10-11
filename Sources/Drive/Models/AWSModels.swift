@@ -1,12 +1,31 @@
 import Foundation
 
+/// Where the backup goes. The raw value is also the name of the keys in the Keychain.
+nonisolated enum BackupProvider: String, CaseIterable, Identifiable, Sendable {
+    // "aws" is the name the keys had before other providers came. Keep it, or saved keys are lost.
+    case s3 = "aws"
+    case gcs
+    case azure
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .s3: "AWS S3"
+        case .gcs: "Google Cloud Storage"
+        case .azure: "Azure Blob Storage"
+        }
+    }
+}
+
+/// For Azure, `accessKey` is empty and `secretKey` holds the SAS token.
 nonisolated struct AWSCredentials: Sendable, Equatable, Codable {
     let accessKey: String
     let secretKey: String
     var sessionToken: String?
 }
 
-/// Everything one S3 request needs to know.
+/// Everything one backup request needs to know.
 nonisolated struct AWSConnection: Sendable {
     let config: AWSConfig
     let credentials: AWSCredentials
@@ -29,7 +48,7 @@ nonisolated struct BackupUpload: Sendable {
 nonisolated struct BackupPlan: Sendable {
     let connection: AWSConnection
     var uploads: [BackupUpload] = []
-    /// Objects in S3 that have no file on this Mac.
+    /// Objects in the backup that have no file on this Mac.
     var extraKeys: [String] = []
 }
 
@@ -43,12 +62,12 @@ nonisolated enum AWSError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notConfigured: "Set the S3 bucket first. Open Drive > Settings."
+        case .notConfigured: "Set the bucket first. Open Drive > Settings."
         case .badSettings(let message): message
-        case .noCredentials: "No AWS access keys found. Add them in Drive > Settings."
-        case .missingKeys: "Fill in both the access key ID and the secret access key."
+        case .noCredentials: "No access keys found. Add them in Drive > Settings."
+        case .missingKeys: "Fill in the access keys first."
         case .keychainFailed(let message): "The keys could not be saved in the Keychain. \(message)"
-        case .requestFailed(let status, let message): "S3 said no (\(status)). \(message)"
+        case .requestFailed(let status, let message): "The backup server said no (\(status)). \(message)"
         }
     }
 }

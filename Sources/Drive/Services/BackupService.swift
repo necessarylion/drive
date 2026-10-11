@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Copies the drive to S3, and brings it back.
+/// Copies the drive to the backup provider, and brings it back.
 @Observable
 final class BackupService {
     /// A short line about the current step, for the window to show.
@@ -9,18 +9,23 @@ final class BackupService {
     private(set) var uploadsDone = 0
     private(set) var uploadsTotal = 0
     private var uploadingPath = ""
-    /// File path -> the change date that is known to be in S3.
+    /// File path -> the change date that is known to be in the backup.
     private var syncedDates: [String: Date] = [:]
 
     private let root: URL
     private let files: FileRepository
-    private let s3: S3Repository
+    private let s3: any BackupRepository
+    private let azure: any BackupRepository
     private let keychain: KeychainRepository
 
-    init(root: URL, files: FileRepository, s3: S3Repository, keychain: KeychainRepository) {
+    init(
+        root: URL, files: FileRepository, s3: any BackupRepository, azure: any BackupRepository,
+        keychain: KeychainRepository
+    ) {
         self.root = root
         self.files = files
         self.s3 = s3
+        self.azure = azure
         self.keychain = keychain
     }
 
@@ -28,20 +33,20 @@ final class BackupService {
         uploadsTotal == 0 ? 0 : Double(uploadsDone) / Double(uploadsTotal)
     }
 
-    // ponytail: known only after the first check with S3 in this run of the app. Before that, files show as pending.
+    // ponytail: known only after the first check with the backup in this run of the app. Before that, files show as pending.
     func state(of item: DriveItem) -> SyncState {
         if item.url.path == uploadingPath { return .uploading }
         if let date = syncedDates[item.url.path], item.modified <= date { return .synced }
         return .pending
     }
 
-    /// Compares this Mac with S3. Changes nothing.
+    /// Compares this Mac with the backup. Changes nothing.
     func plan(_ config: AWSConfig) async throws -> BackupPlan {
         defer { progress = "" }
         let connection = try connect(config)
-        progress = "Checking S3…"
+        progress = "Checking the backup…"
         var remote: [String: S3Object] = [:]
-        for object in try await s3.list(connection) {
+        for object in try await repository(config).list(connection) {
             remote[object.key] = object
         }
 
@@ -56,7 +61,7 @@ final class BackupService {
                 syncedDates[file.url.path] = file.modified
             }
         }
-        // Keys that end with "/" are folder markers made by the S3 website. Leave them.
+        // Keys that end with "/" are folder markers made by the provider's website. Leave them.
         for key in remote.keys.sorted() where !key.hasSuffix("/") {
             plan.extraKeys.append(key)
         }
@@ -70,11 +75,12 @@ final class BackupService {
             uploadsDone = 0
             uploadsTotal = 0
         }
+        let remote = repository(plan.connection.config)
         uploadsTotal = plan.uploads.count
         for upload in plan.uploads {
             progress = "Uploading \(uploadsDone + 1) of \(uploadsTotal)"
             uploadingPath = upload.file.path
-            try await s3.upload(upload.file, key: upload.key, plan.connection)
+            try await remote.upload(upload.file, key: upload.key, plan.connection)
             syncedDates[upload.file.path] = upload.modified
             uploadsDone += 1
         }
@@ -82,18 +88,19 @@ final class BackupService {
         if !removeExtras { return }
         for (index, key) in plan.extraKeys.enumerated() {
             progress = "Removing \(index + 1) of \(plan.extraKeys.count)"
-            try await s3.delete(key: key, plan.connection)
+            try await remote.delete(key: key, plan.connection)
         }
     }
 
-    /// Downloads the files that are in S3 but not on this Mac. Never replaces a local file.
+    /// Downloads the files that are in the backup but not on this Mac. Never replaces a local file.
     /// Returns how many files it downloaded.
     func restore(_ config: AWSConfig) async throws -> Int {
         defer { progress = "" }
         let connection = try connect(config)
-        progress = "Checking S3…"
+        progress = "Checking the backup…"
+        let remote = repository(config)
         var count = 0
-        for object in try await s3.list(connection) {
+        for object in try await remote.list(connection) {
             let relative = String(object.key.dropFirst(config.keyPrefix.count))
             // A key is outside data. Refuse "..", so nothing can be written outside the drive.
             let parts = relative.split(separator: "/", omittingEmptySubsequences: false)
@@ -103,10 +110,10 @@ final class BackupService {
 
             count += 1
             progress = "Downloading file \(count)"
-            let downloaded = try await s3.download(key: object.key, connection)
+            let downloaded = try await remote.download(key: object.key, connection)
             try files.createFolder(at: destination.deletingLastPathComponent())
             try files.move(from: downloaded, to: destination)
-            // Keep the S3 date, so the next backup does not upload the file again.
+            // Keep the backup date, so the next backup does not upload the file again.
             try files.setModified(object.lastModified, at: destination)
             syncedDates[destination.path] = object.lastModified
         }
@@ -116,30 +123,43 @@ final class BackupService {
     // MARK: - Access keys
 
     /// The saved access key ID with most of it hidden, like "AKIA…3XYZ". Nil when no keys are saved.
-    func savedKeyHint() -> String? {
-        guard let key = keychain.load()?.accessKey else { return nil }
-        return "\(key.prefix(4))…\(key.suffix(4))"
+    func savedKeyHint(_ provider: BackupProvider) -> String? {
+        guard let key = keychain.load(provider)?.accessKey else { return nil }
+        // An Azure SAS token has no key ID to show.
+        return key.isEmpty ? "SAS token saved" : "\(key.prefix(4))…\(key.suffix(4))"
     }
 
-    func saveKeys(accessKey: String, secretKey: String) throws {
-        let access = accessKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let secret = secretKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if access.isEmpty || secret.isEmpty { throw AWSError.missingKeys }
-        try keychain.save(AWSCredentials(accessKey: access, secretKey: secret))
+    /// For Azure, `secretKey` is the SAS token and `accessKey` is not used.
+    func saveKeys(accessKey: String, secretKey: String, for provider: BackupProvider) throws {
+        var access = accessKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        var secret = secretKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if provider == .azure {
+            access = ""
+            // The Azure website shows the token with a "?" in front on some pages.
+            if secret.hasPrefix("?") { secret.removeFirst() }
+        } else if access.isEmpty {
+            throw AWSError.missingKeys
+        }
+        if secret.isEmpty { throw AWSError.missingKeys }
+        try keychain.save(AWSCredentials(accessKey: access, secretKey: secret), for: provider)
     }
 
-    func removeKeys() {
-        keychain.delete()
+    func removeKeys(_ provider: BackupProvider) {
+        keychain.delete(provider)
     }
 
-    /// Asks S3 for the file list. Returns how many files are there. Throws when the settings or keys are wrong.
+    /// Asks the provider for the file list. Returns how many files are there. Throws when the settings or keys are wrong.
     func testConnection(_ config: AWSConfig) async throws -> Int {
-        try await s3.list(try connect(config)).count
+        try await repository(config).list(try connect(config)).count
     }
 
     private func connect(_ config: AWSConfig) throws -> AWSConnection {
         try config.validate()
-        guard let credentials = keychain.load() else { throw AWSError.noCredentials }
+        guard let credentials = keychain.load(config.provider) else { throw AWSError.noCredentials }
         return AWSConnection(config: config, credentials: credentials)
+    }
+
+    private func repository(_ config: AWSConfig) -> any BackupRepository {
+        config.provider == .azure ? azure : s3
     }
 }

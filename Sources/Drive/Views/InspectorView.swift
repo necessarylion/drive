@@ -92,8 +92,8 @@ struct ItemDetails: View {
 
     private func title(of state: SyncState) -> String {
         switch state {
-        case .synced: "Backed up to AWS"
-        case .uploading: "Uploading to AWS"
+        case .synced: "Backed up"
+        case .uploading: "Uploading"
         case .pending: "Not backed up yet"
         }
     }
