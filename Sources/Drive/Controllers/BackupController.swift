@@ -29,7 +29,7 @@ final class BackupController {
     init(service: BackupService, drive: DriveController) {
         self.service = service
         self.drive = drive
-        savedKeyHint = service.savedKeyHint()
+        refreshKeys()
     }
 
     var isConfigured: Bool { !AWSConfig.saved().bucket.isEmpty }
@@ -38,7 +38,7 @@ final class BackupController {
     var extrasCount: Int { pendingPlan?.extraKeys.count ?? 0 }
 
     var summaryText: String {
-        if !isConfigured { return "AWS backup is off" }
+        if !isConfigured { return "Backup is off" }
         if isRunning { return service.progress.isEmpty ? "Working…" : service.progress }
         if isPaused { return "Backup is paused" }
         return lastResult.isEmpty ? "Waiting for the first backup" : lastResult
@@ -47,7 +47,7 @@ final class BackupController {
     /// "s3://bucket/folder/"
     var destination: String {
         let config = AWSConfig.saved()
-        return config.bucket.isEmpty ? "AWS backup is off" : "s3://\(config.bucket)/\(config.keyPrefix)"
+        return config.bucket.isEmpty ? "Backup is off" : config.destination
     }
 
     /// Nil means: show no backup icon for this item.
@@ -56,8 +56,8 @@ final class BackupController {
         return service.state(of: item)
     }
 
-    /// Uploads new and changed files without asking. It never removes anything from S3.
-    // ponytail: each run lists the whole S3 folder. Fine for a personal drive; keep a local index if it gets slow.
+    /// Uploads new and changed files without asking. It never removes anything from the backup.
+    // ponytail: each run lists the whole backup folder. Fine for a personal drive; keep a local index if it gets slow.
     func autoBackUp() {
         if !isConfigured || isPaused { return }
         if isRunning {
@@ -76,7 +76,7 @@ final class BackupController {
         }
     }
 
-    /// The manual backup. It also asks what to do with files that are only in S3.
+    /// The manual backup. It also asks what to do with files that are only in the backup.
     func backUp() {
         task = Task { await planBackup() }
     }
@@ -98,21 +98,27 @@ final class BackupController {
     /// Returns true when the keys were saved.
     func saveKeys(accessKey: String, secretKey: String) -> Bool {
         do {
-            try service.saveKeys(accessKey: accessKey, secretKey: secretKey)
+            try service.saveKeys(accessKey: accessKey, secretKey: secretKey, for: AWSConfig.saved().provider)
         } catch {
             connectionResult = error.localizedDescription
             return false
         }
-        savedKeyHint = service.savedKeyHint()
+        refreshKeys()
         connectionResult = "Keys saved."
         autoBackUp()
         return true
     }
 
     func removeKeys() {
-        service.removeKeys()
+        service.removeKeys(AWSConfig.saved().provider)
         savedKeyHint = nil
         connectionResult = "Keys removed."
+    }
+
+    /// Each provider has its own keys, so Settings calls this when the provider changes.
+    func refreshKeys() {
+        savedKeyHint = service.savedKeyHint(AWSConfig.saved().provider)
+        connectionResult = ""
     }
 
     func testConnection() {
@@ -156,7 +162,7 @@ final class BackupController {
             if plan.extraKeys.isEmpty {
                 try await finish(plan, removeExtras: false)
             } else {
-                // Removing from S3 cannot be undone, so the user decides.
+                // Removing from the backup cannot be undone, so the user decides.
                 isExtrasDialogShown = true
             }
         } catch {
@@ -200,7 +206,7 @@ final class BackupController {
 
     private func fail(_ error: Error) {
         if isCancellation(error) { return }
-        lastResult = "Last AWS action failed"
+        lastResult = "Last backup action failed"
         errorMessage = error.localizedDescription
         isErrorShown = true
     }

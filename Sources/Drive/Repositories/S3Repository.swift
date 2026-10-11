@@ -1,7 +1,7 @@
 import Foundation
 
-/// All network calls to S3.
-final class S3Repository {
+/// All network calls to S3. Google Cloud Storage speaks the same language, so it is used for that too.
+final class S3Repository: BackupRepository {
     private let signer: AWSSigner
     private let session: URLSession
 
@@ -73,11 +73,11 @@ final class S3Repository {
         if let token = connection.credentials.sessionToken { headers["x-amz-security-token"] = token }
         let authorization = signer.authorization(
             method: method, path: path, query: queryString, headers: headers, payloadHash: AWSSigner.unsignedPayload,
-            region: config.region, credentials: connection.credentials)
+            region: config.signingRegion, credentials: connection.credentials)
 
         let address = "https://\(config.host)\(path)" + (queryString.isEmpty ? "" : "?\(queryString)")
         guard let url = URL(string: address) else {
-            throw AWSError.badSettings("The S3 address could not be built. Check the bucket and region.")
+            throw AWSError.badSettings("The address could not be built. Check the bucket and region.")
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -95,13 +95,5 @@ final class S3Repository {
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
         return formatter.string(from: .now)
-    }
-
-    private func check(_ response: URLResponse, _ body: Data) throws {
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        if (200..<300).contains(status) { return }
-        let root = try? XMLDocument(data: body).rootElement()
-        let message = root?.elements(forName: "Message").first?.stringValue ?? "No details."
-        throw AWSError.requestFailed(status, message)
     }
 }

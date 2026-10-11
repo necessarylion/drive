@@ -39,20 +39,30 @@ struct AWSTests {
 
     @Test func keepsKeysInTheKeychain() throws {
         let keychain = KeychainRepository(service: "drive-tests-\(UUID().uuidString)")
-        defer { keychain.delete() }
-        #expect(keychain.load() == nil)
+        defer {
+            keychain.delete(.s3)
+            keychain.delete(.azure)
+        }
+        #expect(keychain.load(.s3) == nil)
 
         let saved = AWSCredentials(accessKey: "AKIAEXAMPLE", secretKey: "SECRET")
-        try keychain.save(saved)
-        #expect(keychain.load() == saved)
+        try keychain.save(saved, for: .s3)
+        #expect(keychain.load(.s3) == saved)
+
+        // Each provider has its own keys.
+        #expect(keychain.load(.azure) == nil)
+        let token = AWSCredentials(accessKey: "", secretKey: "sv=2022&sig=abc")
+        try keychain.save(token, for: .azure)
+        #expect(keychain.load(.azure) == token)
+        #expect(keychain.load(.s3) == saved)
 
         // Saving again replaces the old keys.
         let newer = AWSCredentials(accessKey: "AKIANEWER", secretKey: "SECRET2")
-        try keychain.save(newer)
-        #expect(keychain.load() == newer)
+        try keychain.save(newer, for: .s3)
+        #expect(keychain.load(.s3) == newer)
 
-        keychain.delete()
-        #expect(keychain.load() == nil)
+        keychain.delete(.s3)
+        #expect(keychain.load(.s3) == nil)
     }
 
     @Test func refusesUnsafeBucketNames() throws {
@@ -60,5 +70,82 @@ struct AWSTests {
         #expect(throws: AWSError.self) { try AWSConfig(bucket: "").validate() }
         #expect(throws: AWSError.self) { try AWSConfig(bucket: "evil.com/x").validate() }
         #expect(throws: AWSError.self) { try AWSConfig(bucket: "good-name", region: "us east").validate() }
+    }
+
+    @Test func buildsTheAddressOfEachProvider() throws {
+        var config = AWSConfig(bucket: "my-backup", region: "eu-west-1", prefix: "mac")
+        #expect(config.host == "my-backup.s3.eu-west-1.amazonaws.com")
+        #expect(config.signingRegion == "eu-west-1")
+        #expect(config.destination == "s3://my-backup/mac/")
+
+        // Google does not use the region, so a bad one must not stop the backup.
+        config.provider = .gcs
+        config.region = "not used"
+        try config.validate()
+        #expect(config.host == "my-backup.storage.googleapis.com")
+        #expect(config.signingRegion == "auto")
+        #expect(config.destination == "gs://my-backup/mac/")
+
+        config.provider = .azure
+        #expect(throws: AWSError.self) { try config.validate() }
+        config.account = "evil.com/x"
+        #expect(throws: AWSError.self) { try config.validate() }
+        config.account = "mydrive"
+        try config.validate()
+        #expect(config.destination == "https://mydrive.blob.core.windows.net/my-backup/mac/")
+    }
+
+    @Test func buildsAzureRequests() throws {
+        let azure = AzureRepository(signer: signer)
+        let config = AWSConfig(provider: .azure, bucket: "my-backup", account: "mydrive")
+        let connection = AWSConnection(
+            config: config, credentials: AWSCredentials(accessKey: "", secretKey: "sv=2022-11-02&sig=a%2Fb"))
+
+        let put = try azure.request("PUT", key: "Docs/My file+1.txt", connection)
+        #expect(
+            put.url?.absoluteString
+                == "https://mydrive.blob.core.windows.net/my-backup/Docs/My%20file%2B1.txt?sv=2022-11-02&sig=a%2Fb")
+
+        let list = try azure.request("GET", key: "", query: ["comp": "list", "prefix": "a b/"], connection)
+        #expect(
+            list.url?.absoluteString
+                == "https://mydrive.blob.core.windows.net/my-backup?comp=list&prefix=a%20b%2F&sv=2022-11-02&sig=a%2Fb")
+    }
+
+    @Test func readsTheAzureBlobList() throws {
+        let xml = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <EnumerationResults ServiceEndpoint="https://mydrive.blob.core.windows.net/" ContainerName="my-backup">
+              <Blobs>
+                <Blob>
+                  <Name>Docs/a.txt</Name>
+                  <Properties>
+                    <Last-Modified>Fri, 09 Oct 2009 21:04:30 GMT</Last-Modified>
+                    <Content-Length>42</Content-Length>
+                  </Properties>
+                </Blob>
+                <Blob>
+                  <Name>Docs</Name>
+                  <Properties>
+                    <Last-Modified>Fri, 09 Oct 2009 21:04:30 GMT</Last-Modified>
+                    <Content-Length>0</Content-Length>
+                    <ResourceType>directory</ResourceType>
+                  </Properties>
+                </Blob>
+              </Blobs>
+              <NextMarker>next-page</NextMarker>
+            </EnumerationResults>
+            """
+        let page = try AzureRepository(signer: signer).page(from: Data(xml.utf8))
+        #expect(page.marker == "next-page")
+        #expect(page.objects.count == 1)
+        #expect(page.objects.first?.key == "Docs/a.txt")
+        #expect(page.objects.first?.size == 42)
+        #expect(page.objects.first?.lastModified == Date(timeIntervalSince1970: 1_255_122_270))
+
+        let last = try AzureRepository(signer: signer).page(
+            from: Data("<EnumerationResults><NextMarker /></EnumerationResults>".utf8))
+        #expect(last.marker == nil)
+        #expect(last.objects.isEmpty)
     }
 }
