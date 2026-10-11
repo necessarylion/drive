@@ -14,6 +14,7 @@ struct BrowserView: View {
             .background(.background)
             // ponytail: with the older window look on a newer macOS, the toolbar background of the system starts
             // about 2 points left of the sidebar edge. So hide it and draw our own bar, which has the right width.
+            // The bar is only over the items. The inspector goes up to the top of the window, like in the design.
             // Remove both when the app moves to the new window look.
             .toolbarBackground(.hidden, for: .windowToolbar)
             .overlay(alignment: .top) {
@@ -42,6 +43,10 @@ struct BrowserView: View {
                         BreadcrumbBar()
                     }
                 }
+                // Pushes the items below to the right end of the toolbar.
+                ToolbarItem {
+                    Spacer()
+                }
                 ToolbarItem {
                     Picker("View", selection: $controller.viewMode) {
                         Label("List", systemImage: "list.bullet").tag(ViewMode.list)
@@ -60,10 +65,15 @@ struct BrowserView: View {
                         .pickerStyle(.inline)
                         Toggle("Ascending", isOn: $controller.isSortAscending)
                     }
+                    .menuIndicator(.hidden)
                 }
                 ToolbarItem {
                     Button("Inspector", systemImage: "sidebar.right", action: controller.toggleInspector)
+                        .foregroundStyle(controller.isInspectorVisible ? Theme.accent : .secondary)
                         .help("Show or hide the details")
+                }
+                ToolbarItem {
+                    SearchField()
                 }
                 ToolbarItem {
                     if controller.section == .trash {
@@ -81,6 +91,15 @@ struct BrowserView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(Theme.accent)
                         .disabled(!controller.canAddFiles)
+                    }
+                }
+                // ponytail: the toolbar of the system goes over the inspector too. This empty item is as wide as
+                // the inspector, so the items above stop at its edge. In a narrow window they do not all fit and
+                // go over the edge. Make the search field smaller there if that gets annoying.
+                if controller.isInspectorVisible {
+                    ToolbarItem {
+                        Color.clear
+                            .frame(width: controller.inspectorWidth)
                     }
                 }
             }
@@ -164,6 +183,31 @@ struct SectionTitle: View {
         Text(text)
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.secondary)
+    }
+}
+
+/// The search field in the toolbar. It is our own field and not `.searchable`, because the system always puts
+/// that one last, and in the design the New button comes after it.
+struct SearchField: View {
+    @Environment(DriveController.self) private var controller
+
+    var body: some View {
+        @Bindable var controller = controller
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search in Drive", text: $controller.searchText)
+                .textFieldStyle(.plain)
+            if !controller.searchText.isEmpty {
+                Button("Clear", systemImage: "xmark.circle.fill", action: controller.clearSearch)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(width: AppConstants.searchFieldWidth, height: 28)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
     }
 }
 
