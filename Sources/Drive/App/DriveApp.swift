@@ -13,7 +13,7 @@ struct DriveApp: App {
         }
         .defaultSize(width: 1280, height: 780)
         .commands {
-            DriveCommands(drive: container.drive, backup: container.backup)
+            DriveCommands(drive: container.drive, backup: container.backup, searchFocuser: container.searchFocuser)
         }
 
         WindowGroup("Viewer", id: AppConstants.viewerWindowID, for: URL.self) { $url in
@@ -44,6 +44,7 @@ struct DriveApp: App {
 final class AppContainer {
     let drive: DriveController
     let backup: BackupController
+    let searchFocuser = SearchFieldFocuser()
 
     init() {
         AWSConfig.migrate()
@@ -66,6 +67,7 @@ final class AppContainer {
 struct DriveCommands: Commands {
     let drive: DriveController
     let backup: BackupController
+    let searchFocuser: SearchFieldFocuser
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -94,7 +96,7 @@ struct DriveCommands: Commands {
                 .disabled(drive.selection.isEmpty)
         }
         CommandGroup(replacing: .textEditing) {
-            Button("Find", action: drive.focusSearch)
+            Button("Find", action: searchFocuser.focus)
                 .keyboardShortcut("f")
         }
         CommandMenu("Go") {
