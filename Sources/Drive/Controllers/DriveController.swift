@@ -104,10 +104,17 @@ final class DriveController {
         }
     }
 
+    /// How wide the inspector is now. The toolbar uses it to stop at the edge of the inspector.
+    var inspectorWidth: CGFloat = 0
+
     /// The inspector is hidden in column view, because that view has its own preview.
     var isInspectorVisible: Bool {
         get { isInspectorShown && !isColumnMode }
         set { isInspectorShown = newValue }
+    }
+
+    func clearSearch() {
+        searchText = ""
     }
 
     // MARK: - Reading

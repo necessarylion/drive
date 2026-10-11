@@ -17,9 +17,11 @@ struct ContentView: View {
                 .inspector(isPresented: $controller.isInspectorVisible) {
                     InspectorView()
                         .inspectorColumnWidth(min: 260, ideal: 290, max: 360)
+                        .frame(maxWidth: .infinity)
+                        // The toolbar needs the width to stop at the edge of the inspector.
+                        .onGeometryChange(for: CGFloat.self, of: \.size.width, action: setInspectorWidth)
                 }
         }
-        .searchable(text: $controller.searchText, prompt: "Search in Drive")
         .sheet(isPresented: $controller.isPromptShown) {
             NameSheet()
                 .environment(controller)
@@ -47,6 +49,10 @@ struct ContentView: View {
         .task {
             backup.autoBackUp()
         }
+    }
+
+    private func setInspectorWidth(_ width: CGFloat) {
+        controller.inspectorWidth = width
     }
 
     private func refresh() {

@@ -7,12 +7,10 @@ struct SettingsView: View {
     @State private var accessKey = ""
     @State private var secretKey = ""
     @AppStorage(AppConstants.storageRootKey) private var storageRoot = ""
-    @AppStorage(AppConstants.backupProviderKey) private var provider = BackupProvider.s3
-    @AppStorage(AppConstants.azureAccountKey) private var account = ""
-    @AppStorage(AppConstants.googleClientIDKey) private var clientID = ""
-    @AppStorage(AppConstants.awsBucketKey) private var bucket = ""
-    @AppStorage(AppConstants.awsRegionKey) private var region = AppConstants.awsDefaultRegion
-    @AppStorage(AppConstants.awsPrefixKey) private var prefix = ""
+    /// The backup settings on screen. The backup does not use them until the user chooses Save.
+    @State private var draft = AWSConfig.saved()
+    /// The backup settings that are in use now.
+    @State private var saved = AWSConfig.saved()
 
     var body: some View {
         Form {
@@ -41,30 +39,43 @@ struct SettingsView: View {
             }
 
             Section {
-                Picker("Provider", selection: $provider) {
+                Picker("Provider", selection: $draft.provider) {
                     ForEach(BackupProvider.allCases) { provider in
                         Text(provider.title)
                             .tag(provider)
                     }
                 }
-                .onChange(of: provider, backup.refreshKeys)
+                .onChange(of: draft.provider, refreshKeys)
                 if provider == .azure {
-                    TextField("Storage account", text: $account, prompt: Text("mydriveaccount"))
+                    TextField("Storage account", text: $draft.account, prompt: Text("mydriveaccount"))
                 }
                 if provider == .googleDrive {
-                    TextField("Client ID", text: $clientID, prompt: Text("123-abc.apps.googleusercontent.com"))
+                    TextField("Client ID", text: $draft.clientID, prompt: Text("123-abc.apps.googleusercontent.com"))
                 }
-                TextField(bucketLabel, text: $bucket, prompt: Text("my-drive-backup"))
+                TextField(bucketLabel, text: $draft.bucket, prompt: Text("my-drive-backup"))
                 if provider == .s3 {
-                    TextField("Region", text: $region, prompt: Text(AppConstants.awsDefaultRegion))
+                    TextField("Region", text: $draft.region, prompt: Text(AppConstants.awsDefaultRegion))
                 }
-                TextField("Folder in it", text: $prefix, prompt: Text("Optional"))
+                TextField("Folder in it", text: $draft.prefix, prompt: Text("Optional"))
+                HStack {
+                    Text(draft == saved ? "" : "These changes are not saved yet.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Revert", action: revert)
+                        .disabled(draft == saved)
+                    Button("Save", action: save)
+                        .disabled(draft == saved)
+                }
             } header: {
                 Text("Backup")
             } footer: {
-                Text("Drive uploads new and changed files by itself when a bucket, container or folder is set.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Drive uploads new and changed files by itself when a bucket, container or folder is set. "
+                        + "A change here takes effect after you choose Save."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section {
@@ -92,13 +103,13 @@ struct SettingsView: View {
                         ProgressView()
                             .controlSize(.small)
                     }
-                    Button("Test Connection", action: backup.testConnection)
-                        .disabled(backup.isTesting || bucket.isEmpty)
-                    Button("Remove", role: .destructive, action: backup.removeKeys)
+                    Button("Test Connection", action: testConnection)
+                        .disabled(backup.isTesting || draft.bucket.isEmpty)
+                    Button("Remove", role: .destructive, action: removeKeys)
                         .disabled(backup.savedKeyHint == nil)
                     if provider == .googleDrive {
                         Button("Sign In with Google…", action: signIn)
-                            .disabled(clientID.isEmpty || bucket.isEmpty)
+                            .disabled(draft.clientID.isEmpty || draft.bucket.isEmpty)
                     } else {
                         Button("Save Keys", action: saveKeys)
                             .disabled(secretKey.isEmpty || (accessKey.isEmpty && provider != .azure))
@@ -115,7 +126,10 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 540)
         .fixedSize(horizontal: false, vertical: true)
+        .onAppear(perform: revert)
     }
+
+    private var provider: BackupProvider { draft.provider }
 
     private var keysHelp: String {
         switch provider {
@@ -139,13 +153,14 @@ struct SettingsView: View {
     }
 
     private func runSignIn() async {
-        guard let url = backup.googleSignInURL() else { return }
+        let config = draft
+        guard let url = backup.googleSignInURL(config) else { return }
         // This throws when the user closes the sign-in window. Then there is nothing to do.
         guard
             let callback = try? await webAuthenticationSession.authenticate(
-                using: url, callbackURLScheme: backup.googleRedirectScheme)
+                using: url, callbackURLScheme: config.googleRedirectScheme)
         else { return }
-        await backup.finishGoogleSignIn(callback)
+        await backup.finishGoogleSignIn(callback, config)
     }
 
     private func chooseFolder() {
@@ -160,11 +175,36 @@ struct SettingsView: View {
     }
 
     private func saveKeys() {
-        if backup.saveKeys(accessKey: accessKey, secretKey: secretKey) {
+        if backup.saveKeys(accessKey: accessKey, secretKey: secretKey, for: provider) {
             // Do not keep the secret on screen after it is saved.
             accessKey = ""
             secretKey = ""
         }
+    }
+
+    private func save() {
+        backup.saveSettings(draft)
+        saved = draft
+    }
+
+    /// Drops the changes that are not saved. Also runs when the window opens.
+    private func revert() {
+        saved = AWSConfig.saved()
+        draft = saved
+        refreshKeys()
+    }
+
+    /// Each provider has its own keys, so show the ones of the provider on screen.
+    private func refreshKeys() {
+        backup.refreshKeys(provider)
+    }
+
+    private func testConnection() {
+        backup.testConnection(draft)
+    }
+
+    private func removeKeys() {
+        backup.removeKeys(provider)
     }
 
     private func useDefaultFolder() {

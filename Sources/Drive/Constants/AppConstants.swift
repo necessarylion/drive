@@ -22,6 +22,7 @@ nonisolated enum AppConstants {
     static let dateColumnWidth: CGFloat = 140
     static let sizeColumnWidth: CGFloat = 80
     static let badgeColumnWidth: CGFloat = 28
+    static let searchFieldWidth: CGFloat = 220
 
     static let viewModeKey = "viewMode"
     static let storageRootKey = "storage.root"
