@@ -169,8 +169,11 @@ Google only lets a registered app sign in. So you make a free client ID first. Y
 2. Open **APIs & Services > Library**, find **Google Drive API**, and click **Enable**.
 3. Open **Google Auth Platform** and click **Get started**. Type an app name and your email.
    Pick **External** as the audience. Do not add a logo.
+   Google refuses an app name with "Drive" or "Google" in it. Use a name like `My Mac Backup`.
 4. Open **Data Access**, click **Add or remove scopes**, and add `.../auth/drive.file`.
 5. Open **Audience** and click **Publish app**. Without this, you must sign in again every 7 days.
+   If the button is off, open **Branding** first. Fill in a home page link and a privacy policy link,
+   add the domain of these links under **Authorized domains**, and save.
 6. Open **Clients** and click **Create client**. Pick **iOS** as the application type.
    Type `com.zinkyaw.drive` as the bundle ID. Copy the client ID.
 7. In Drive, open **Drive > Settings** and pick **Google Drive**.
