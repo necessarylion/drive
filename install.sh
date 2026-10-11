@@ -32,4 +32,5 @@ fi
 
 rm -rf "$DEST/Drive.app"
 mv "$TMP/Drive.app" "$DEST/Drive.app"
-echo "Drive is installed in $DEST. Open it from there."
+echo "Drive is installed in $DEST."
+echo "To open the application run \"open $DEST/Drive.app\""
