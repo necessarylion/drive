@@ -46,6 +46,7 @@ final class AppContainer {
     let backup: BackupController
 
     init() {
+        AWSConfig.migrate()
         let config = AppConfig.live
         let files = FileRepository()
         let signer = AWSSigner()
@@ -55,7 +56,8 @@ final class AppContainer {
         let backupService = BackupService(
             root: driveService.rootFolder, files: files, s3: S3Repository(signer: signer),
             azure: AzureRepository(signer: signer), google: GoogleDriveRepository(auth: googleAuth),
-            googleAuth: googleAuth, keychain: KeychainRepository(service: AppConstants.awsKeychainService))
+            googleAuth: googleAuth, keychain: KeychainRepository(service: AppConstants.awsKeychainService),
+            stateStore: BackupStateRepository(file: config.backupStateFile))
         drive = DriveController(service: driveService)
         backup = BackupController(service: backupService, drive: drive)
     }
@@ -90,6 +92,10 @@ struct DriveCommands: Commands {
             Button("Move to Trash", action: drive.trashSelection)
                 .keyboardShortcut(.delete)
                 .disabled(drive.selection.isEmpty)
+        }
+        CommandGroup(replacing: .textEditing) {
+            Button("Find", action: drive.focusSearch)
+                .keyboardShortcut("f")
         }
         CommandMenu("Go") {
             Button("Back", action: drive.goBack)

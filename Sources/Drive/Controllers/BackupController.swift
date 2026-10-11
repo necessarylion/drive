@@ -29,7 +29,9 @@ final class BackupController {
     init(service: BackupService, drive: DriveController) {
         self.service = service
         self.drive = drive
-        refreshKeys(AWSConfig.saved().provider)
+        let config = AWSConfig.saved()
+        service.follow(config.destination)
+        refreshKeys(config.provider)
     }
 
     var isConfigured: Bool { !AWSConfig.saved().bucket.isEmpty }
@@ -99,6 +101,7 @@ final class BackupController {
     /// what the user types there changes nothing.
     func saveSettings(_ config: AWSConfig) {
         config.save()
+        service.follow(config.destination)
         // A plan that waits for an answer was made for the old place.
         pendingPlan = nil
         lastResult = ""

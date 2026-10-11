@@ -45,7 +45,7 @@ struct SettingsView: View {
                             .tag(provider)
                     }
                 }
-                .onChange(of: draft.provider, refreshKeys)
+                .onChange(of: draft.provider, providerChanged)
                 if provider == .azure {
                     TextField("Storage account", text: $draft.account, prompt: Text("mydriveaccount"))
                 }
@@ -184,13 +184,20 @@ struct SettingsView: View {
 
     private func save() {
         backup.saveSettings(draft)
-        saved = draft
+        // Read them back, so the screen shows what was saved (spaces around the text are cut off).
+        revert()
     }
 
     /// Drops the changes that are not saved. Also runs when the window opens.
     private func revert() {
         saved = AWSConfig.saved()
         draft = saved
+        refreshKeys()
+    }
+
+    /// Each provider has its own bucket and folder, so show the saved ones of the provider on screen.
+    private func providerChanged() {
+        draft = AWSConfig.saved(for: provider)
         refreshKeys()
     }
 

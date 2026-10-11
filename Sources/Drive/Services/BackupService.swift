@@ -9,8 +9,8 @@ final class BackupService {
     private(set) var uploadsDone = 0
     private(set) var uploadsTotal = 0
     private var uploadingPath = ""
-    /// File path -> the change date that is known to be in the backup.
-    private var syncedDates: [String: Date] = [:]
+    /// Which files are known to be in the backup, and in which backup.
+    private var state: BackupState
 
     private let root: URL
     private let files: FileRepository
@@ -19,10 +19,12 @@ final class BackupService {
     private let google: any BackupRepository
     private let googleAuth: GoogleAuthRepository
     private let keychain: KeychainRepository
+    private let stateStore: BackupStateRepository
 
     init(
         root: URL, files: FileRepository, s3: any BackupRepository, azure: any BackupRepository,
-        google: any BackupRepository, googleAuth: GoogleAuthRepository, keychain: KeychainRepository
+        google: any BackupRepository, googleAuth: GoogleAuthRepository, keychain: KeychainRepository,
+        stateStore: BackupStateRepository
     ) {
         self.root = root
         self.files = files
@@ -31,23 +33,38 @@ final class BackupService {
         self.google = google
         self.googleAuth = googleAuth
         self.keychain = keychain
+        self.stateStore = stateStore
+        state = stateStore.load()
     }
 
     var fraction: Double {
         uploadsTotal == 0 ? 0 : Double(uploadsDone) / Double(uploadsTotal)
     }
 
-    // ponytail: known only after the first check with the backup in this run of the app. Before that, files show as pending.
+    // ponytail: this is what the last check with the backup found. A file that was removed from the backup
+    // by hand shows as synced until the next check.
     func state(of item: DriveItem) -> SyncState {
         if item.url.path == uploadingPath { return .uploading }
-        if let date = syncedDates[item.url.path], item.modified <= date { return .synced }
+        if let date = state.syncedDates[item.url.path], item.modified <= date { return .synced }
         return .pending
+    }
+
+    /// Tells the service where the backup goes now. What it knew about another place is dropped,
+    /// because a file that is in one backup is not in the other.
+    func follow(_ destination: String) {
+        if state.destination == destination { return }
+        state = BackupState(destination: destination)
+        saveState()
     }
 
     /// Compares this Mac with the backup. Changes nothing.
     func plan(_ config: AWSConfig) async throws -> BackupPlan {
-        defer { progress = "" }
+        defer {
+            progress = ""
+            saveState()
+        }
         let connection = try connect(config)
+        follow(config.destination)
         progress = "Checking the backup…"
         var remote: [String: S3Object] = [:]
         for object in try await repository(config).list(connection) {
@@ -55,14 +72,18 @@ final class BackupService {
         }
 
         var plan = BackupPlan(connection: connection)
-        for file in files.allFiles(under: root) {
+        let localFiles = files.allFiles(under: root)
+        // Forget the files that are gone from this Mac.
+        let localPaths = Set(localFiles.map(\.url.path))
+        state.syncedDates = state.syncedDates.filter { localPaths.contains($0.key) }
+        for file in localFiles {
             let key = config.keyPrefix + file.url.path.dropFirst(root.path.count + 1)
             let existing = remote.removeValue(forKey: key)
             // Same rule as "aws s3 sync": upload when the size differs or the local file is newer.
             if existing?.size != file.size || file.modified > existing?.lastModified ?? .distantPast {
                 plan.uploads.append(BackupUpload(file: file.url, key: key, modified: file.modified))
             } else {
-                syncedDates[file.url.path] = file.modified
+                state.syncedDates[file.url.path] = file.modified
             }
         }
         // Keys that end with "/" are folder markers made by the provider's website. Leave them.
@@ -78,6 +99,7 @@ final class BackupService {
             uploadingPath = ""
             uploadsDone = 0
             uploadsTotal = 0
+            saveState()
         }
         let remote = repository(plan.connection.config)
         uploadsTotal = plan.uploads.count
@@ -85,7 +107,10 @@ final class BackupService {
             progress = "Uploading \(uploadsDone + 1) of \(uploadsTotal)"
             uploadingPath = upload.file.path
             try await remote.upload(upload.file, key: upload.key, plan.connection)
-            syncedDates[upload.file.path] = upload.modified
+            // The settings can change while a backup runs. Then this upload went to the old place.
+            if plan.connection.config.destination == state.destination {
+                state.syncedDates[upload.file.path] = upload.modified
+            }
             uploadsDone += 1
         }
         uploadingPath = ""
@@ -99,8 +124,12 @@ final class BackupService {
     /// Downloads the files that are in the backup but not on this Mac. Never replaces a local file.
     /// Returns how many files it downloaded.
     func restore(_ config: AWSConfig) async throws -> Int {
-        defer { progress = "" }
+        defer {
+            progress = ""
+            saveState()
+        }
         let connection = try connect(config)
+        follow(config.destination)
         progress = "Checking the backup…"
         let remote = repository(config)
         var count = 0
@@ -119,7 +148,7 @@ final class BackupService {
             try files.move(from: downloaded, to: destination)
             // Keep the backup date, so the next backup does not upload the file again.
             try files.setModified(object.lastModified, at: destination)
-            syncedDates[destination.path] = object.lastModified
+            state.syncedDates[destination.path] = object.lastModified
         }
         return count
     }
@@ -167,6 +196,11 @@ final class BackupService {
     /// Asks the provider for the file list. Returns how many files are there. Throws when the settings or keys are wrong.
     func testConnection(_ config: AWSConfig) async throws -> Int {
         try await repository(config).list(try connect(config)).count
+    }
+
+    private func saveState() {
+        // The file only makes the icons right sooner. If it cannot be saved, the next check finds it all again.
+        try? stateStore.save(state)
     }
 
     private func connect(_ config: AWSConfig) throws -> AWSConnection {

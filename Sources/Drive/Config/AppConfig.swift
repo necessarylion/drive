@@ -7,6 +7,7 @@ nonisolated struct AppConfig: Sendable {
     var filesRoot: URL { storageRoot.appending(component: "Files", directoryHint: .notDirectory) }
     var trashRoot: URL { storageRoot.appending(component: "Trash", directoryHint: .notDirectory) }
     var metadataFile: URL { storageRoot.appending(component: "metadata.json", directoryHint: .notDirectory) }
+    var backupStateFile: URL { storageRoot.appending(component: "backup-state.json", directoryHint: .notDirectory) }
 
     static let defaultStorageRoot = URL.applicationSupportDirectory.appending(
         component: "Drive", directoryHint: .notDirectory)

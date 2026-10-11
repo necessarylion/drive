@@ -7,10 +7,7 @@ nonisolated enum AppConstants {
     static let backupProviderKey = "backup.provider"
     static let azureAccountKey = "azure.account"
     static let googleClientIDKey = "google.clientID"
-    // ponytail: the keys below are shared by all providers. Give each provider its own if people switch a lot.
-    static let awsBucketKey = "aws.bucket"
     static let awsRegionKey = "aws.region"
-    static let awsPrefixKey = "aws.prefix"
     static let awsPausedKey = "aws.paused"
     static let awsKeychainService = "com.zinkyaw.drive.aws"
     static let awsDefaultRegion = "us-east-1"
@@ -28,4 +25,9 @@ nonisolated enum AppConstants {
     static let storageRootKey = "storage.root"
     static let mainWindowID = "main"
     static let viewerWindowID = "viewer"
+
+    // Each provider has its own bucket and folder. S3 is "aws" here, so it keeps the keys from the time
+    // when all providers shared them: "aws.bucket" and "aws.prefix".
+    static func bucketKey(_ provider: BackupProvider) -> String { "\(provider.rawValue).bucket" }
+    static func prefixKey(_ provider: BackupProvider) -> String { "\(provider.rawValue).prefix" }
 }

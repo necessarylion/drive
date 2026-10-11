@@ -190,6 +190,7 @@ struct SectionTitle: View {
 /// that one last, and in the design the New button comes after it.
 struct SearchField: View {
     @Environment(DriveController.self) private var controller
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         @Bindable var controller = controller
@@ -198,6 +199,7 @@ struct SearchField: View {
                 .foregroundStyle(.secondary)
             TextField("Search in Drive", text: $controller.searchText)
                 .textFieldStyle(.plain)
+                .focused($isFocused)
             if !controller.searchText.isEmpty {
                 Button("Clear", systemImage: "xmark.circle.fill", action: controller.clearSearch)
                     .labelStyle(.iconOnly)
@@ -208,6 +210,11 @@ struct SearchField: View {
         .padding(.horizontal, 8)
         .frame(width: AppConstants.searchFieldWidth, height: 28)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
+        .onChange(of: controller.searchFocusCount, focus)
+    }
+
+    private func focus() {
+        isFocused = true
     }
 }
 

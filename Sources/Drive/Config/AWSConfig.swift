@@ -12,27 +12,54 @@ nonisolated struct AWSConfig: Equatable, Sendable {
     var region = AppConstants.awsDefaultRegion
     var prefix = ""
 
-    static func saved() -> AWSConfig {
-        let defaults = UserDefaults.standard
+    /// The settings the backup uses now.
+    static func saved(in defaults: UserDefaults = .standard) -> AWSConfig {
+        saved(for: savedProvider(in: defaults), in: defaults)
+    }
+
+    /// The settings of one provider. Each provider remembers its own bucket and folder.
+    static func saved(for provider: BackupProvider, in defaults: UserDefaults = .standard) -> AWSConfig {
         var config = AWSConfig()
-        config.provider = BackupProvider(rawValue: defaults.string(forKey: AppConstants.backupProviderKey) ?? "") ?? .s3
+        config.provider = provider
         config.account = clean(defaults.string(forKey: AppConstants.azureAccountKey)) ?? config.account
         config.clientID = clean(defaults.string(forKey: AppConstants.googleClientIDKey)) ?? config.clientID
-        config.bucket = clean(defaults.string(forKey: AppConstants.awsBucketKey)) ?? config.bucket
+        config.bucket = clean(defaults.string(forKey: AppConstants.bucketKey(provider))) ?? config.bucket
         config.region = clean(defaults.string(forKey: AppConstants.awsRegionKey)) ?? config.region
-        config.prefix = clean(defaults.string(forKey: AppConstants.awsPrefixKey)) ?? config.prefix
+        config.prefix = clean(defaults.string(forKey: AppConstants.prefixKey(provider))) ?? config.prefix
         return config
     }
 
     /// Makes these settings the ones the backup uses.
-    func save() {
-        let defaults = UserDefaults.standard
+    func save(in defaults: UserDefaults = .standard) {
         defaults.set(provider.rawValue, forKey: AppConstants.backupProviderKey)
-        defaults.set(account, forKey: AppConstants.azureAccountKey)
-        defaults.set(clientID, forKey: AppConstants.googleClientIDKey)
-        defaults.set(bucket, forKey: AppConstants.awsBucketKey)
-        defaults.set(region, forKey: AppConstants.awsRegionKey)
-        defaults.set(prefix, forKey: AppConstants.awsPrefixKey)
+        defaults.set(bucket, forKey: AppConstants.bucketKey(provider))
+        defaults.set(prefix, forKey: AppConstants.prefixKey(provider))
+        // Write only what this provider uses, or saving one provider resets a field of another one.
+        switch provider {
+        case .s3: defaults.set(region, forKey: AppConstants.awsRegionKey)
+        case .azure: defaults.set(account, forKey: AppConstants.azureAccountKey)
+        case .googleDrive: defaults.set(clientID, forKey: AppConstants.googleClientIDKey)
+        case .gcs: break
+        }
+    }
+
+    /// Older versions kept one bucket and one folder for all providers, under the keys that S3 has now.
+    /// This gives them to the provider that was in use. Run it one time at the start of the app.
+    static func migrate(in defaults: UserDefaults = .standard) {
+        let provider = savedProvider(in: defaults)
+        let oldBucketKey = AppConstants.bucketKey(.s3)
+        let oldPrefixKey = AppConstants.prefixKey(.s3)
+        // A provider that has its own bucket was saved by this version. Then the S3 keys belong to S3.
+        if provider == .s3 || defaults.object(forKey: AppConstants.bucketKey(provider)) != nil { return }
+        guard let bucket = defaults.string(forKey: oldBucketKey) else { return }
+        defaults.set(bucket, forKey: AppConstants.bucketKey(provider))
+        defaults.set(defaults.string(forKey: oldPrefixKey) ?? "", forKey: AppConstants.prefixKey(provider))
+        defaults.removeObject(forKey: oldBucketKey)
+        defaults.removeObject(forKey: oldPrefixKey)
+    }
+
+    private static func savedProvider(in defaults: UserDefaults) -> BackupProvider {
+        BackupProvider(rawValue: defaults.string(forKey: AppConstants.backupProviderKey) ?? "") ?? .s3
     }
 
     var host: String {

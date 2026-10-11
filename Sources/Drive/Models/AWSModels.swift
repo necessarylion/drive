@@ -48,6 +48,14 @@ nonisolated struct BackupUpload: Sendable {
 }
 
 /// What a backup will do. Made first, so the user can be asked before anything is removed.
+/// What is known to be in the backup. It is saved to a file, so the backup icons are right when the app starts.
+nonisolated struct BackupState: Codable, Equatable, Sendable {
+    /// Where the backup goes, like "s3://bucket/folder/". The dates are only true for this place.
+    var destination = ""
+    /// File path -> the change date that is known to be in the backup.
+    var syncedDates: [String: Date] = [:]
+}
+
 nonisolated struct BackupPlan: Sendable {
     let connection: AWSConnection
     var uploads: [BackupUpload] = []

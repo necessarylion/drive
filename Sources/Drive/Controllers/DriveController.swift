@@ -113,6 +113,13 @@ final class DriveController {
         set { isInspectorShown = newValue }
     }
 
+    /// The search field watches this. It takes the keyboard each time the number changes.
+    private(set) var searchFocusCount = 0
+
+    func focusSearch() {
+        searchFocusCount += 1
+    }
+
     func clearSearch() {
         searchText = ""
     }
