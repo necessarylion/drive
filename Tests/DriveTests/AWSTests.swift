@@ -95,6 +95,68 @@ struct AWSTests {
         #expect(config.destination == "https://mydrive.blob.core.windows.net/my-backup/mac/")
     }
 
+    @Test func buildsTheGoogleSignInAddress() throws {
+        var config = AWSConfig(provider: .googleDrive, bucket: "Drive Backup")
+        // Without a good client ID there is no sign-in.
+        #expect(throws: AWSError.self) { try GoogleAuthRepository(signer: signer).signInURL(config) }
+        config.clientID = "evil.com/x"
+        #expect(throws: AWSError.self) { try config.validate() }
+
+        config.clientID = "123-abc.apps.googleusercontent.com"
+        #expect(config.googleRedirectURI == "com.googleusercontent.apps.123-abc:/oauth2redirect")
+        #expect(config.destination == "Google Drive/Drive Backup/")
+
+        let address = try GoogleAuthRepository(signer: signer).signInURL(config).absoluteString
+        #expect(address.hasPrefix("https://accounts.google.com/o/oauth2/v2/auth?client_id=123-abc.apps."))
+        #expect(address.contains("&redirect_uri=com.googleusercontent.apps.123-abc%3A%2Foauth2redirect&"))
+        #expect(address.contains("&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file&"))
+        #expect(address.contains("&code_challenge_method=S256&"))
+    }
+
+    @Test func refusesASignInAnswerItDidNotAskFor() async throws {
+        let config = AWSConfig(
+            provider: .googleDrive, bucket: "Drive Backup", clientID: "123-abc.apps.googleusercontent.com")
+        let auth = GoogleAuthRepository(signer: signer)
+        _ = try auth.signInURL(config)
+        let callback = try #require(URL(string: "\(config.googleRedirectURI)?code=stolen&state=wrong"))
+        // The state is wrong, so it stops before any network call.
+        await #expect(throws: AWSError.self) { try await auth.finishSignIn(callback, config) }
+    }
+
+    @Test func buildsPathsFromTheGoogleDriveList() {
+        let folder = GoogleFile.folderType
+        let files = [
+            GoogleFile(id: "root", name: "Drive Backup", parents: ["my-drive"], mimeType: folder),
+            GoogleFile(id: "docs", name: "Docs", parents: ["root"], mimeType: folder),
+            GoogleFile(
+                id: "a", name: "a.txt", parents: ["docs"], mimeType: "text/plain", size: "42",
+                modifiedTime: "2009-10-09T21:04:30.000Z"),
+            GoogleFile(id: "b", name: "b.txt", parents: ["root"], mimeType: "text/plain", size: "7"),
+            // A file of the app that is in another folder. It is not part of this backup.
+            GoogleFile(id: "other", name: "Old Backup", parents: ["my-drive"], mimeType: folder),
+            GoogleFile(id: "c", name: "c.txt", parents: ["other"], mimeType: "text/plain", size: "1"),
+        ]
+        let drive = GoogleDriveRepository(auth: GoogleAuthRepository(signer: signer))
+
+        var config = AWSConfig(provider: .googleDrive, bucket: "Drive Backup")
+        var keys: [String] = []
+        for object in drive.index(files, config) {
+            keys.append(object.key)
+        }
+        #expect(keys.sorted() == ["Docs/a.txt", "b.txt"])
+        let first = drive.index(files, config).first
+        #expect(first?.size == 42)
+        #expect(first?.lastModified == Date(timeIntervalSince1970: 1_255_122_270))
+
+        // Only the configured folder in the backup folder counts, like the prefix of a bucket.
+        config.prefix = "Docs"
+        #expect(drive.index(files, config).count == 1)
+
+        // No backup folder yet means an empty backup.
+        config.bucket = "Not There"
+        #expect(drive.index(files, config).isEmpty)
+    }
+
     @Test func buildsAzureRequests() throws {
         let azure = AzureRepository(signer: signer)
         let config = AWSConfig(provider: .azure, bucket: "my-backup", account: "mydrive")

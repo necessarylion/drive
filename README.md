@@ -5,7 +5,7 @@
 <h1 align="center">Drive</h1>
 
 <p align="center">
-  A native macOS app to keep your files and folders in one place, with a backup to your own AWS S3, Google Cloud Storage or Azure bucket.
+  A native macOS app to keep your files and folders in one place, with a backup to your own AWS S3, Google Cloud Storage, Azure or Google Drive.
 </p>
 
 ![The Drive main window](docs/screenshot.png)
@@ -30,7 +30,7 @@ Drive is written in Swift and SwiftUI. It has no third-party dependencies.
 - **Viewer window:** open a file in its own window. A PDF gets page thumbnails, zoom, search and print.
 - **Quick Look:** preview a file with ⌘Y.
 - **Menu bar icon:** see the backup state and your recent files without opening the window.
-- **Cloud backup:** AWS S3, Google Cloud Storage or Azure Blob Storage. New and changed files upload by themselves. You can restore them on another Mac.
+- **Cloud backup:** AWS S3, Google Cloud Storage, Azure Blob Storage or Google Drive. New and changed files upload by themselves. You can restore them on another Mac.
 
 ## Download
 
@@ -125,7 +125,7 @@ Drive does not move files from the old folder to the new one.
 ## Backup
 
 The backup is optional. Drive works without it.
-Pick one provider in **Drive > Settings** (⌘,): AWS S3, Google Cloud Storage or Azure Blob Storage.
+Pick one provider in **Drive > Settings** (⌘,): AWS S3, Google Cloud Storage, Azure Blob Storage or Google Drive.
 
 Drive keeps the keys in the Keychain of your Mac. It does not write them to a file.
 Each provider has its own keys.
@@ -160,6 +160,29 @@ Each provider has its own keys.
 6. Click **Test Connection**.
 
 The SAS token stops working on its end date. Make a new one then and save it again.
+
+### Set up Google Drive
+
+Google only lets a registered app sign in. So you make a free client ID first. You do this one time.
+
+1. Open the [Google Cloud console](https://console.cloud.google.com) and create a project.
+2. Open **APIs & Services > Library**, find **Google Drive API**, and click **Enable**.
+3. Open **Google Auth Platform** and click **Get started**. Type an app name and your email.
+   Pick **External** as the audience. Do not add a logo.
+   Google refuses an app name with "Drive" or "Google" in it. Use a name like `My Mac Backup`.
+4. Open **Data Access**, click **Add or remove scopes**, and add `.../auth/drive.file`.
+5. Open **Audience** and click **Publish app**. Without this, you must sign in again every 7 days.
+   If the button is off, open **Branding** first. Fill in a home page link and a privacy policy link,
+   add the domain of these links under **Authorized domains**, and save.
+6. Open **Clients** and click **Create client**. Pick **iOS** as the application type.
+   Type `com.zinkyaw.drive` as the bundle ID. Copy the client ID.
+7. In Drive, open **Drive > Settings** and pick **Google Drive**.
+8. Paste the client ID. Type a name for the backup folder, like `Drive Backup`.
+9. Click **Sign In with Google…** and allow the access.
+10. Click **Test Connection**.
+
+Drive can only see the files it uploaded itself. It cannot see your other Google Drive files.
+Google does not review an app that only asks for this access.
 
 ### IAM policy for AWS
 
@@ -199,6 +222,7 @@ Replace `my-drive-backup` with the name of your bucket.
 - Bucket names with a dot or “_” in them are not supported.
 - Stars, pins, folder colors, the trash and empty folders are not backed up.
 - Drive is a backup tool, not a sync tool. It does not merge changes from two Macs.
+- On Google Drive, a removed file goes to the trash of Google Drive. Google deletes it after 30 days.
 - Turn on versioning for your bucket if you want to undo a removed or replaced file.
 
 ## Project layout
@@ -211,7 +235,7 @@ Sources/Drive/
   Config/        Where data is stored, and the backup settings.
   Constants/     Global constants and the colors.
   Models/        Plain data types.
-  Repositories/  All access to the disk, the Keychain, S3 and Azure.
+  Repositories/  All access to the disk, the Keychain, S3, Azure and Google Drive.
   Services/      The rules of the drive, the backup, and AWS request signing.
   Controllers/   The state of the windows.
   Views/         SwiftUI views.
@@ -224,6 +248,7 @@ Requests to S3 are signed in `Services/AWSSigner.swift` with AWS Signature Versi
 The tests check the signer against the examples in the AWS documentation.
 Google Cloud Storage takes the same signed requests, so `S3Repository` is used for it too.
 Azure has its own calls in `Repositories/AzureRepository.swift`.
+Google Drive has its calls in `Repositories/GoogleDriveRepository.swift`, and its sign-in in `GoogleAuthRepository.swift`.
 
 ## Development
 

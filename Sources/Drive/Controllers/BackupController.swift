@@ -115,6 +115,32 @@ final class BackupController {
         connectionResult = "Keys removed."
     }
 
+    /// What the sign-in window must wait for. Google sends the user back to an address that starts with it.
+    var googleRedirectScheme: String { AWSConfig.saved().googleRedirectScheme }
+
+    /// The Google page where the user signs in. Nil when the settings are wrong; the reason is then shown.
+    func googleSignInURL() -> URL? {
+        do {
+            return try service.googleSignInURL(AWSConfig.saved())
+        } catch {
+            connectionResult = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Takes the address Google sent the user back to.
+    func finishGoogleSignIn(_ callback: URL) async {
+        do {
+            try await service.finishGoogleSignIn(callback, AWSConfig.saved())
+        } catch {
+            connectionResult = error.localizedDescription
+            return
+        }
+        refreshKeys()
+        connectionResult = "Signed in."
+        autoBackUp()
+    }
+
     /// Each provider has its own keys, so Settings calls this when the provider changes.
     func refreshKeys() {
         savedKeyHint = service.savedKeyHint(AWSConfig.saved().provider)

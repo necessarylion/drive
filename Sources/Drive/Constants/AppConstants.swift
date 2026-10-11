@@ -6,6 +6,7 @@ nonisolated enum AppConstants {
 
     static let backupProviderKey = "backup.provider"
     static let azureAccountKey = "azure.account"
+    static let googleClientIDKey = "google.clientID"
     // ponytail: the keys below are shared by all providers. Give each provider its own if people switch a lot.
     static let awsBucketKey = "aws.bucket"
     static let awsRegionKey = "aws.region"

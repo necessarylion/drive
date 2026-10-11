@@ -16,16 +16,20 @@ final class BackupService {
     private let files: FileRepository
     private let s3: any BackupRepository
     private let azure: any BackupRepository
+    private let google: any BackupRepository
+    private let googleAuth: GoogleAuthRepository
     private let keychain: KeychainRepository
 
     init(
         root: URL, files: FileRepository, s3: any BackupRepository, azure: any BackupRepository,
-        keychain: KeychainRepository
+        google: any BackupRepository, googleAuth: GoogleAuthRepository, keychain: KeychainRepository
     ) {
         self.root = root
         self.files = files
         self.s3 = s3
         self.azure = azure
+        self.google = google
+        self.googleAuth = googleAuth
         self.keychain = keychain
     }
 
@@ -125,6 +129,7 @@ final class BackupService {
     /// The saved access key ID with most of it hidden, like "AKIA…3XYZ". Nil when no keys are saved.
     func savedKeyHint(_ provider: BackupProvider) -> String? {
         guard let key = keychain.load(provider)?.accessKey else { return nil }
+        if provider == .googleDrive { return "Signed in" }
         // An Azure SAS token has no key ID to show.
         return key.isEmpty ? "SAS token saved" : "\(key.prefix(4))…\(key.suffix(4))"
     }
@@ -144,6 +149,17 @@ final class BackupService {
         try keychain.save(AWSCredentials(accessKey: access, secretKey: secret), for: provider)
     }
 
+    /// The Google page where the user signs in.
+    func googleSignInURL(_ config: AWSConfig) throws -> URL {
+        try googleAuth.signInURL(config)
+    }
+
+    /// Takes the address Google sent the user back to, and saves the sign-in in the Keychain.
+    func finishGoogleSignIn(_ callback: URL, _ config: AWSConfig) async throws {
+        let refreshToken = try await googleAuth.finishSignIn(callback, config)
+        try keychain.save(AWSCredentials(accessKey: "", secretKey: refreshToken), for: .googleDrive)
+    }
+
     func removeKeys(_ provider: BackupProvider) {
         keychain.delete(provider)
     }
@@ -160,6 +176,10 @@ final class BackupService {
     }
 
     private func repository(_ config: AWSConfig) -> any BackupRepository {
-        config.provider == .azure ? azure : s3
+        switch config.provider {
+        case .s3, .gcs: s3
+        case .azure: azure
+        case .googleDrive: google
+        }
     }
 }
