@@ -173,7 +173,7 @@ struct StarMark: View {
     }
 }
 
-/// The small icon that tells if a file is in the AWS backup.
+/// The small icon that tells if a file is in the backup.
 struct SyncBadge: View {
     @Environment(BackupController.self) private var backup
     let item: DriveItem
@@ -183,11 +183,11 @@ struct SyncBadge: View {
         case .synced:
             Image(systemName: "checkmark.circle")
                 .foregroundStyle(Theme.success)
-                .help("Backed up to AWS")
+                .help("Backed up")
         case .uploading:
             Image(systemName: "arrow.triangle.2.circlepath")
                 .foregroundStyle(Theme.accent)
-                .help("Uploading to AWS")
+                .help("Uploading")
         case .pending:
             Image(systemName: "icloud.and.arrow.up")
                 .foregroundStyle(.tertiary)
