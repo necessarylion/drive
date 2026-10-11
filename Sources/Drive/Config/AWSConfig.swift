@@ -1,7 +1,7 @@
 import Foundation
 
 /// The backup settings. The user edits them in the Settings window.
-nonisolated struct AWSConfig: Sendable {
+nonisolated struct AWSConfig: Equatable, Sendable {
     var provider = BackupProvider.s3
     /// The bucket. For Azure, this is the container. For Google Drive, this is the name of the backup folder.
     var bucket = ""
@@ -22,6 +22,17 @@ nonisolated struct AWSConfig: Sendable {
         config.region = clean(defaults.string(forKey: AppConstants.awsRegionKey)) ?? config.region
         config.prefix = clean(defaults.string(forKey: AppConstants.awsPrefixKey)) ?? config.prefix
         return config
+    }
+
+    /// Makes these settings the ones the backup uses.
+    func save() {
+        let defaults = UserDefaults.standard
+        defaults.set(provider.rawValue, forKey: AppConstants.backupProviderKey)
+        defaults.set(account, forKey: AppConstants.azureAccountKey)
+        defaults.set(clientID, forKey: AppConstants.googleClientIDKey)
+        defaults.set(bucket, forKey: AppConstants.awsBucketKey)
+        defaults.set(region, forKey: AppConstants.awsRegionKey)
+        defaults.set(prefix, forKey: AppConstants.awsPrefixKey)
     }
 
     var host: String {

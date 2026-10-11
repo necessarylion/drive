@@ -29,7 +29,7 @@ final class BackupController {
     init(service: BackupService, drive: DriveController) {
         self.service = service
         self.drive = drive
-        refreshKeys()
+        refreshKeys(AWSConfig.saved().provider)
     }
 
     var isConfigured: Bool { !AWSConfig.saved().bucket.isEmpty }
@@ -93,35 +93,47 @@ final class BackupController {
         task = Task { await runRestore() }
     }
 
+    // MARK: - Settings
+
+    /// Makes the settings from the Settings window the ones the backup uses. Until this is called,
+    /// what the user types there changes nothing.
+    func saveSettings(_ config: AWSConfig) {
+        config.save()
+        // A plan that waits for an answer was made for the old place.
+        pendingPlan = nil
+        lastResult = ""
+        autoBackUp()
+    }
+
     // MARK: - Access keys
 
+    // The functions below take the settings that are on screen in the Settings window. They can be
+    // not saved yet, so the user can set up and test a provider before the backup starts to use it.
+
     /// Returns true when the keys were saved.
-    func saveKeys(accessKey: String, secretKey: String) -> Bool {
+    func saveKeys(accessKey: String, secretKey: String, for provider: BackupProvider) -> Bool {
         do {
-            try service.saveKeys(accessKey: accessKey, secretKey: secretKey, for: AWSConfig.saved().provider)
+            try service.saveKeys(accessKey: accessKey, secretKey: secretKey, for: provider)
         } catch {
             connectionResult = error.localizedDescription
             return false
         }
-        refreshKeys()
+        refreshKeys(provider)
         connectionResult = "Keys saved."
         autoBackUp()
         return true
     }
 
-    func removeKeys() {
-        service.removeKeys(AWSConfig.saved().provider)
+    func removeKeys(_ provider: BackupProvider) {
+        service.removeKeys(provider)
         savedKeyHint = nil
         connectionResult = "Keys removed."
     }
 
-    /// What the sign-in window must wait for. Google sends the user back to an address that starts with it.
-    var googleRedirectScheme: String { AWSConfig.saved().googleRedirectScheme }
-
     /// The Google page where the user signs in. Nil when the settings are wrong; the reason is then shown.
-    func googleSignInURL() -> URL? {
+    func googleSignInURL(_ config: AWSConfig) -> URL? {
         do {
-            return try service.googleSignInURL(AWSConfig.saved())
+            return try service.googleSignInURL(config)
         } catch {
             connectionResult = error.localizedDescription
             return nil
@@ -129,32 +141,32 @@ final class BackupController {
     }
 
     /// Takes the address Google sent the user back to.
-    func finishGoogleSignIn(_ callback: URL) async {
+    func finishGoogleSignIn(_ callback: URL, _ config: AWSConfig) async {
         do {
-            try await service.finishGoogleSignIn(callback, AWSConfig.saved())
+            try await service.finishGoogleSignIn(callback, config)
         } catch {
             connectionResult = error.localizedDescription
             return
         }
-        refreshKeys()
+        refreshKeys(config.provider)
         connectionResult = "Signed in."
         autoBackUp()
     }
 
     /// Each provider has its own keys, so Settings calls this when the provider changes.
-    func refreshKeys() {
-        savedKeyHint = service.savedKeyHint(AWSConfig.saved().provider)
+    func refreshKeys(_ provider: BackupProvider) {
+        savedKeyHint = service.savedKeyHint(provider)
         connectionResult = ""
     }
 
-    func testConnection() {
-        Task { await runTest() }
+    func testConnection(_ config: AWSConfig) {
+        Task { await runTest(config) }
     }
 
-    private func runTest() async {
+    private func runTest(_ config: AWSConfig) async {
         isTesting = true
         do {
-            let count = try await service.testConnection(AWSConfig.saved())
+            let count = try await service.testConnection(config)
             connectionResult = "It works. \(count) file(s) are in the backup."
         } catch {
             connectionResult = error.localizedDescription
