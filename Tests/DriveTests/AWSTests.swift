@@ -65,6 +65,75 @@ struct AWSTests {
         #expect(keychain.load(.s3) == nil)
     }
 
+    @Test func eachProviderKeepsItsOwnBucket() throws {
+        let suite = "drive-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        AWSConfig(provider: .s3, bucket: "my-s3-bucket", region: "eu-west-1", prefix: "mac").save(in: defaults)
+        AWSConfig(provider: .azure, bucket: "my-container", account: "mydrive").save(in: defaults)
+
+        // The provider that was saved last is the one in use.
+        #expect(
+            AWSConfig.saved(in: defaults)
+                == AWSConfig(provider: .azure, bucket: "my-container", account: "mydrive", region: "eu-west-1"))
+        let s3 = AWSConfig.saved(for: .s3, in: defaults)
+        #expect(s3.bucket == "my-s3-bucket")
+        #expect(s3.prefix == "mac")
+        #expect(AWSConfig.saved(for: .gcs, in: defaults).bucket.isEmpty)
+    }
+
+    @Test func movesTheSharedBucketToTheProviderInUse() throws {
+        let suite = "drive-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        // An older version saved it like this: Google Drive in use, with the bucket under the shared keys.
+        defaults.set(BackupProvider.googleDrive.rawValue, forKey: AppConstants.backupProviderKey)
+        defaults.set("Drive Backup", forKey: "aws.bucket")
+        defaults.set("mac", forKey: "aws.prefix")
+
+        AWSConfig.migrate(in: defaults)
+        #expect(AWSConfig.saved(in: defaults).bucket == "Drive Backup")
+        #expect(AWSConfig.saved(in: defaults).prefix == "mac")
+        #expect(AWSConfig.saved(for: .s3, in: defaults).bucket.isEmpty)
+
+        // A second run changes nothing, also after S3 gets its own bucket.
+        AWSConfig(provider: .s3, bucket: "my-s3-bucket").save(in: defaults)
+        AWSConfig(provider: .googleDrive, bucket: "Drive Backup", prefix: "mac").save(in: defaults)
+        AWSConfig.migrate(in: defaults)
+        #expect(AWSConfig.saved(for: .s3, in: defaults).bucket == "my-s3-bucket")
+    }
+
+    @Test func remembersWhatIsInTheBackup() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(component: "DriveTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = BackupStateRepository(file: folder.appending(component: "backup-state.json"))
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let item = DriveItem(url: folder.appending(component: "a.txt"), isFolder: false, size: 1, modified: date)
+        try store.save(BackupState(destination: "s3://one/", syncedDates: [item.url.path: date]))
+
+        // A new launch knows the file is in the backup, without asking the provider.
+        let service = makeBackupService(root: folder, store: store)
+        service.follow("s3://one/")
+        #expect(service.state(of: item) == .synced)
+
+        // Another backup place does not have the file. This is also saved.
+        service.follow("s3://two/")
+        #expect(service.state(of: item) == .pending)
+        #expect(store.load() == BackupState(destination: "s3://two/"))
+    }
+
+    private func makeBackupService(root: URL, store: BackupStateRepository) -> BackupService {
+        let googleAuth = GoogleAuthRepository(signer: signer)
+        return BackupService(
+            root: root, files: FileRepository(), s3: S3Repository(signer: signer),
+            azure: AzureRepository(signer: signer), google: GoogleDriveRepository(auth: googleAuth),
+            googleAuth: googleAuth, keychain: KeychainRepository(service: "drive-tests-\(UUID().uuidString)"),
+            stateStore: store)
+    }
+
     @Test func refusesUnsafeBucketNames() throws {
         try AWSConfig(bucket: "my-drive-backup").validate()
         #expect(throws: AWSError.self) { try AWSConfig(bucket: "").validate() }
