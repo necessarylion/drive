@@ -51,6 +51,8 @@ You can also download `Drive-x.y.z.zip` from the
 [latest release](https://github.com/necessarylion/drive/releases/latest) and move `Drive.app`
 to your Applications folder.
 
+### If macOS does not open the app
+
 Drive is not signed with an Apple Developer ID. When you download it with a browser, macOS
 says "Apple could not verify Drive is free of malware" and does not open it. To allow it:
 
