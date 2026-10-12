@@ -203,11 +203,7 @@ fn each_provider_keeps_its_own_bucket() {
     let saved_s3 = BackupConfig::saved_for(BackupProvider::S3, &settings);
     assert_eq!(saved_s3.bucket, "my-s3-bucket");
     assert_eq!(saved_s3.prefix, "mac");
-    assert!(
-        BackupConfig::saved_for(BackupProvider::Gcs, &settings)
-            .bucket
-            .is_empty()
-    );
+    assert_eq!(BackupConfig::saved_for(BackupProvider::Gcs, &settings).bucket, "");
 }
 
 #[test]
@@ -298,7 +294,7 @@ async fn backs_up_and_restores() {
 
     // Now only the two bad keys are extra. The manual backup may remove them.
     let plan = service.plan(&config).await.unwrap();
-    assert!(plan.uploads.is_empty());
+    assert_eq!(plan.uploads.len(), 0);
     assert_eq!(plan.extra_keys.len(), 2);
     service.run(&plan, true).await.unwrap();
     assert_eq!(service.test_connection(&config).await.unwrap(), 2);
@@ -429,7 +425,7 @@ fn builds_paths_from_the_google_drive_list() {
 
     // No backup folder yet means an empty backup.
     config.bucket = "Not There".to_owned();
-    assert!(drive.index(&files, &config).is_empty());
+    assert_eq!(drive.index(&files, &config).len(), 0);
 }
 
 #[test]
@@ -487,7 +483,7 @@ fn reads_the_azure_and_s3_lists() {
 
     let (objects, marker) = AzureRepository::page(b"<EnumerationResults><NextMarker /></EnumerationResults>").unwrap();
     assert!(marker.is_none());
-    assert!(objects.is_empty());
+    assert_eq!(objects.len(), 0);
 
     // S3 puts a namespace on its answer, and escapes "&" in keys.
     let s3 = r#"<?xml version="1.0" encoding="UTF-8"?>

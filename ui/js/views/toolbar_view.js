@@ -19,8 +19,10 @@ export class ToolbarView extends View {
     super(root);
     this.drive = drive;
     this.menus = menus;
+    /** The search field is hidden until the user asks for it with Command+F or Control+F. */
+    this.isSearchShown = false;
     this.build();
-    this.listen('click', 'input', 'keydown');
+    this.listen('click', 'input', 'keydown', 'focusout');
     this.watch(drive);
   }
 
@@ -76,6 +78,7 @@ export class ToolbarView extends View {
       title: 'Clear',
       data: { action: 'clear' },
     });
+    this.searchBox = Dom.el('div', { class: 'search' }, [Dom.icon('search'), this.searchInput, this.clearButton]);
     Dom.fill(this.root, [
       this.sidebarButton,
       this.backButton,
@@ -87,7 +90,7 @@ export class ToolbarView extends View {
       this.inspectorButton,
       this.newButton,
       this.emptyTrashButton,
-      Dom.el('div', { class: 'search' }, [Dom.icon('search'), this.searchInput, this.clearButton]),
+      this.searchBox,
     ]);
   }
 
@@ -107,10 +110,15 @@ export class ToolbarView extends View {
     // Do not touch the field while the user types in it.
     if (this.searchInput.value !== drive.searchText) this.searchInput.value = drive.searchText;
     this.clearButton.hidden = drive.searchText === '';
+    // A search that is in use stays on screen, so the user sees why the list is short.
+    this.searchBox.hidden = !this.isSearchShown && drive.searchText === '';
     Dom.fill(this.crumbs, this.crumbParts());
   }
 
+  /** Shows the search field and puts the cursor in it. */
   focusSearch() {
+    this.isSearchShown = true;
+    this.searchBox.hidden = false;
     this.searchInput.focus();
     this.searchInput.select();
   }
@@ -187,8 +195,23 @@ export class ToolbarView extends View {
 
   onKeyDown(event) {
     if (event.target === this.searchInput && event.key === 'Escape') {
+      this.hideSearch();
       this.drive.setSearch('');
       this.searchInput.blur();
     }
+  }
+
+  handleEvent(event) {
+    // The empty search field goes away when the user clicks somewhere else.
+    if (event.type === 'focusout') {
+      if (event.target === this.searchInput && this.searchInput.value === '') this.hideSearch();
+    } else {
+      super.handleEvent(event);
+    }
+  }
+
+  hideSearch() {
+    this.isSearchShown = false;
+    this.searchBox.hidden = true;
   }
 }

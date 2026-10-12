@@ -24,7 +24,7 @@ Drive is written in Rust with [Tauri 2](https://tauri.app). The window is plain 
 - **Folders:** make folders, give them a color, and pin them to the sidebar.
 - **Add files:** use the New button, or drag files and folders in from the file manager.
 - **Organize:** rename, duplicate, move and star items.
-- **Find:** search by name, sort by name, date or size, and see recent files.
+- **Find:** press ⌘F (Mac) or Ctrl+F to search by name, sort by name, date or size, and see recent files.
 - **Trash:** put items back, or delete them forever. Drive asks before it deletes.
 - **Details pane:** preview, type, size, dates and backup state of the selected item.
 - **Viewer:** open a picture, video, sound, text file or PDF in the app. Press Space or Enter on a selected file.

@@ -84,7 +84,7 @@ async fn full_life_of_a_file() {
     // Trash, put back, then delete forever.
     service.trash(std::slice::from_ref(&folder)).unwrap();
     assert_eq!(fixture.names(DriveSection::MyDrive, &root), ["note 2.txt"]);
-    assert!(fixture.names(DriveSection::Starred, &root).is_empty());
+    assert_eq!(fixture.names(DriveSection::Starred, &root).len(), 0);
     let trashed = service.items(DriveSection::Trash, &root, "", ItemSorter::BY_NAME);
     assert_eq!(trashed.len(), 1);
     assert_eq!(trashed[0].name, "Docs");
@@ -102,7 +102,7 @@ async fn full_life_of_a_file() {
         in_trash.push(item.path);
     }
     service.delete_forever(&in_trash).unwrap();
-    assert!(fixture.names(DriveSection::Trash, &root).is_empty());
+    assert_eq!(fixture.names(DriveSection::Trash, &root).len(), 0);
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn folders_keep_pin_and_color_after_rename() {
     assert!(service.is_pinned(&renamed));
     assert_eq!(service.folder_chain(&renamed).len(), 1);
     service.set_pinned(&[renamed], false);
-    assert!(service.pinned_folders().is_empty());
+    assert_eq!(service.pinned_folders().len(), 0);
 }
 
 #[tokio::test]
@@ -160,7 +160,7 @@ fn loads_metadata_saved_by_an_older_version() {
     let old = r#"{"starred":["/a/b.txt"],"trashOrigins":{}}"#;
     let metadata: DriveMetadata = serde_json::from_str(old).unwrap();
     assert!(metadata.starred.contains("/a/b.txt"));
-    assert!(metadata.pinned.is_empty());
+    assert_eq!(metadata.pinned.len(), 0);
 
     // The Swift app wrote the colors like this.
     let swift = r#"{"starred":[],"trashOrigins":{"ABC":"/a/b"},"pinned":["/a"],"folderColors":{"/a":"green"}}"#;
