@@ -16,8 +16,6 @@ on:
   push:
     branches:
       - main
-      # TEMPORARY: runs the builds on every push to this branch, to test the workflow. Remove before the merge.
-      - port-to-rust
     tags:
       - "v*"
   pull_request:
