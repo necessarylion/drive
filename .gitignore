@@ -1,3 +1,23 @@
-.build/
-build/
+# Rust build output
+src-tauri/target/
+src-tauri/gen/
+
+# Node packages
+node_modules/
+
+# macOS files
 .DS_Store
+
+# Windows files
+Thumbs.db
+
+# Log files
+*.log
+
+# Secret settings (keep the example file)
+.env
+.env.*
+!.env.example
+
+# Editor folders
+.idea/

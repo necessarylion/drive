@@ -1,0 +1,186 @@
+name: Build
+
+# When it runs:
+#   - on every pull request and on every push to main,
+#   - when a tag like v1.2.0 is pushed,
+#   - when you start it by hand on the Actions page.
+#
+# What it makes:
+#   - It checks the code (format, lint, tests).
+#   - It builds the installers for macOS, Linux and Windows. All builds run at the same time.
+#   - On a tag, the installers go to the GitHub release of that tag.
+#   - On all other runs, the installers are kept as workflow artifacts. You can download them from the run page.
+#
+# The app is not signed with a paid certificate. macOS and Windows show a warning on the first start.
+on:
+  push:
+    branches:
+      - main
+      # TEMPORARY: runs the builds on every push to this branch, to test the workflow. Remove before the merge.
+      - port-to-rust
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same pull request stops the older run.
+# Runs for a tag or for main are never stopped.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+  # The packages that Tauri needs on Linux. The list is from https://v2.tauri.app/start/prerequisites/
+  # libdbus-1-dev and pkg-config are for the keyring crate. patchelf and xdg-utils are for the AppImage.
+  LINUX_PACKAGES: >-
+    libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils libxdo-dev libssl-dev
+    libdbus-1-dev pkg-config build-essential curl wget file
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Linux packages
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_PACKAGES
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      - name: Check the frontend
+        run: bun run lint
+
+      - name: Check the Rust format
+        run: cargo fmt --check
+        working-directory: src-tauri
+
+      - name: Run Clippy
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: src-tauri
+
+      - name: Run the tests
+        run: cargo test
+        working-directory: src-tauri
+
+  # Makes the GitHub release before the builds start.
+  # Without this job, all builds try to make the release at the same time, and some can fail.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Make the release if it is not there yet
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        # The release is there already when the tag was made on the GitHub website.
+        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --generate-notes
+
+  build:
+    name: ${{ matrix.name }}
+    needs: release
+    # The release job is skipped when there is no tag. The builds must still run then.
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    strategy:
+      # One failed build does not stop the other builds.
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple silicon
+            runner: macos-latest
+            target: aarch64-apple-darwin
+          # macos-latest is an Apple silicon machine. It can also build for Intel.
+          - name: macOS Intel
+            runner: macos-latest
+            target: x86_64-apple-darwin
+          # Ubuntu 22.04 is old on purpose. A build made on an old system also runs on newer systems.
+          - name: Linux x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          # A real ARM machine, so there is no cross compiling.
+          - name: Linux arm64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - name: Windows x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+          # Built on the x64 machine. This is the way the Tauri documentation describes.
+          # The machine already has the "C++ ARM64 build tools" and clang that the build needs.
+          # The windows-11-arm runner is newer, and the Tauri documentation does not use it.
+          # The installer itself is an x86 program. Windows on ARM runs it with emulation. The app is real ARM64.
+          - name: Windows arm64
+            runner: windows-latest
+            target: aarch64-pc-windows-msvc
+          - name: Windows 32-bit
+            runner: windows-latest
+            target: i686-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_PACKAGES
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      # The tag v1.2.0 gives the app version 1.2.0.
+      # ponytail: the tag must be three plain numbers. The MSI installer does not accept a tag like v1.2.0-beta.
+      - name: Set the app version from the tag
+        if: env.IS_TAG == 'true'
+        shell: bash
+        run: |
+          jq --arg version "${GITHUB_REF_NAME#v}" '.version = $version' src-tauri/tauri.conf.json > tauri.conf.tmp
+          mv tauri.conf.tmp src-tauri/tauri.conf.json
+
+      # With a tagName, the action also adds the installers to the release of that tag.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tauriScript: bun tauri
+          args: --target ${{ matrix.target }}
+          tagName: ${{ env.IS_TAG == 'true' && github.ref_name || '' }}
+
+      # Only the installer files. The folders next to them are large and not needed.
+      - name: Keep the installers as a workflow artifact
+        if: env.IS_TAG != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: drive-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
