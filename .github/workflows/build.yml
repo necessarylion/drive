@@ -1,11 +1,4 @@
-        # The release is there already when the tag was made on the GitHub website.
-        # A tag with a "-" in it, like v1.2.0-beta.1, becomes a pre-release. It is then not the "latest" release.
-        run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then exit 0; fi
-          case "$GITHUB_REF_NAME" in
-            *-*) gh release create "$GITHUB_REF_NAME" --generate-notes --prerelease ;;
-            *) gh release create "$GITHUB_REF_NAME" --generate-notes ;;
-          esacname: Build
+name: Build
 
 # When it runs, and what it makes:
 #   - On every pull request and on every push to main: it only checks the code (format, lint, tests).
