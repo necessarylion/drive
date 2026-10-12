@@ -40,7 +40,7 @@ Or install it with one line. The line finds the right file for your system and c
 
 Drive updates itself after that. It looks for a new version when it starts, and every 6 hours while it runs.
 It asks you before it installs one. On Linux, a `.deb` or `.rpm` install asks for your password then.
-Versions older than 1.1.0 cannot update themselves. Run the install line one more time for them.
+Version 0.0.6 and older cannot update themselves. Run the install line one more time for them.
 
 **macOS and Linux**, in the Terminal:
 
