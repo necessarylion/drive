@@ -33,7 +33,29 @@ Drive is written in Rust with [Tauri 2](https://tauri.app). The window is plain 
 
 ## Download
 
-Get the file for your system from the [latest release](https://github.com/necessarylion/drive/releases/latest).
+**[Download the latest release](https://github.com/necessarylion/drive/releases/latest)**
+
+Or install it with one line. The line finds the right file for your system and chip by itself.
+Run the same line again to update.
+
+**macOS and Linux**, in the Terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/necessarylion/drive/main/install.sh | sh
+```
+
+- macOS (Apple silicon and Intel): it puts `Drive.app` in your Applications folder.
+- Linux (64-bit Intel, AMD and ARM): it installs the `.deb` or the `.rpm` with the package manager of your system, and asks for your password. A system without `apt`, `dnf`, `yum` or `zypper` gets the AppImage in `~/.local/bin`.
+
+**Windows** (64-bit, ARM and 32-bit), in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/necessarylion/drive/main/install.ps1 | iex
+```
+
+### Pick the file yourself
+
+All files are on the [latest release](https://github.com/necessarylion/drive/releases/latest) page. `x.y.z` is the version.
 
 | System  | Chip                    | File                              |
 | ------- | ----------------------- | --------------------------------- |
@@ -46,17 +68,6 @@ Get the file for your system from the [latest release](https://github.com/necess
 | Linux   | ARM                     | `.deb`, `.rpm` or `.AppImage` with `arm64` or `aarch64` in the name |
 
 Windows also has `.msi` files. Use them if you like them more than the `.exe` installer.
-
-### macOS, with one line
-
-Paste this line in the Terminal app:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/necessarylion/drive/main/install.sh | sh
-```
-
-It downloads the latest release and puts `Drive.app` in your Applications folder.
-Run the same line again to update.
 
 ### If the system does not open the app
 
