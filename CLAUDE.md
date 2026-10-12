@@ -54,6 +54,7 @@ The code goes in one direction: view → controller → service → repository �
 - **`repositories/`**: all outside access. `FileRepository` (disk), `MetadataRepository` and `BackupStateRepository` (JSON files), `SettingsRepository` (`settings.json`), `KeychainRepository` (the keychain of the system, through the `keyring` crate), `HttpTransport` (all HTTP), and one `BackupRepository` per provider.
 - **`config/` and `constants/`**: `AppConfig` (where data is stored), `BackupConfig` (provider, bucket, region, prefix), `AppConstants` (all keys and limits).
 - **`tray.rs`**: the tray icon and its menu.
+- **`viewer_window.rs`**: opens a file in a window of its own (`ui/viewer.html`, `ui/js/viewer_main.js`). The file to show is given to the page as `window.DRIVE_VIEWED`.
 
 ### Window side (`ui/js/`)
 
@@ -72,6 +73,7 @@ The code goes in one direction: view → controller → service → repository �
 - **Metadata is keyed by full path.** Stars, pins and folder colors are stored by path in `DriveMetadata`. After any move or rename, call `metadata.repath(old, new)`, or the item loses them. Every field has `#[serde(default)]`, so a file from an older version (also from the Swift app) still loads. Do the same for new fields.
 - **Paths must be canonical.** `FileRepository::prepared_folder` returns the real path (`/private/var`, not `/var`). Path checks use `Path::starts_with` on these. Never check paths with string prefixes; that breaks on Windows.
 - **The window sends paths, so the services check them.** `DriveService::require_item_in_drive` stops rename, trash and duplicate for anything outside `Files/`. `trash_slot` is the guard that stops restore and delete from touching anything outside the trash. `drive_open` and `drive_reveal` only take paths inside the storage root. The asset protocol (used to show pictures and PDFs) is only allowed for the storage root; see `AppContainer::install`.
+- **The close button hides the main window.** `AppContainer::keep_alive` stops the close and hides it, so the window comes back as it was (Dock icon or tray). Only "Quit Drive" stops the app. Viewer windows (label `viewer-…`) close for real.
 - **The trash uses slots.** A trashed item moves to `Trash/<random id>/<name>`. `metadata.trash_origins` maps the slot id to the old path.
 - **How the automatic backup starts.** Every action that changes files ends in `DriveController.didChange` (window side). It reads the lists again and calls `backup.autoBackUp()`. A new action that changes files must go through `didChange` too.
 - **How the window learns about backup steps.** `BackupService` and `BackupController` call `BackupObserver::backup_changed`. `WindowObserver` (in `lib.rs`) turns that into the `backup-changed` event. The window then asks for `backup_status` again, and the drive lists are read again a moment later.

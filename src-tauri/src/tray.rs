@@ -6,7 +6,6 @@ use tauri::{App, AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::app_menu::AppMenu;
-use crate::constants::AppConstants;
 use crate::controllers::backup_controller::BackupController;
 use crate::controllers::drive_controller::DriveController;
 
@@ -47,12 +46,7 @@ impl TrayMenu {
     fn handle(app: &AppHandle, event: MenuEvent) {
         let backup = app.state::<Arc<BackupController>>();
         match event.id().as_ref() {
-            Self::OPEN => {
-                if let Some(window) = app.get_webview_window(AppConstants::MAIN_WINDOW) {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
+            Self::OPEN => AppMenu::show_window(app),
             // This one uploads new and changed files. It never removes anything from the backup.
             Self::BACK_UP => backup.auto_back_up(),
             Self::PAUSE => backup.toggle_pause(),

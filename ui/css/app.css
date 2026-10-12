@@ -917,6 +917,12 @@ button:disabled {
   object-fit: cover;
 }
 
+/* The first page of a PDF: paper is white, and the top of the page is the part to show. */
+.thumbnail img.is-page {
+  background: #ffffff;
+  object-position: top;
+}
+
 .thumbnail-icon {
   width: 30px;
   height: 30px;

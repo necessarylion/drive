@@ -31,6 +31,8 @@ impl AppConstants {
     /// Tells the window to show the Settings dialog.
     pub const OPEN_SETTINGS_EVENT: &'static str = "open-settings";
     pub const MAIN_WINDOW: &'static str = "main";
+    /// The label of a viewer window starts with this. `capabilities/default.json` uses the same start.
+    pub const VIEWER_WINDOW_PREFIX: &'static str = "viewer-";
 
     // Each provider has its own bucket and folder.
     pub fn bucket_key(provider: BackupProvider) -> String {

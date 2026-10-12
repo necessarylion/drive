@@ -22,7 +22,7 @@ export class DriveController extends EventTarget {
     this.selection = new Set();
     this.isInspectorShown = true;
     this.isSidebarShown = true;
-    /** Set to show a file in the viewer. */
+    /** The file a viewer window shows. The main window never sets it. */
     this.viewedItem = null;
 
     this.items = [];
@@ -341,16 +341,15 @@ export class DriveController extends EventTarget {
 
   // MARK: - Opening
 
-  /** Opens a folder in place, or a file in the viewer. */
-  open(paths) {
+  /** Opens a folder in place, or a file in a viewer window of its own. */
+  async open(paths) {
     if (this.section === 'trash' || paths.length === 0) return;
     const item = this.find(paths[0]);
     if (!item) return;
     if (item.isFolder) {
       this.showFolder(item.path);
     } else {
-      this.viewedItem = item;
-      this.emit();
+      await this.guard(this.repository.view(item.path));
     }
   }
 
@@ -358,8 +357,9 @@ export class DriveController extends EventTarget {
     this.open([...this.selection]);
   }
 
-  closeViewer() {
-    this.viewedItem = null;
+  /** Used by a viewer window: this is the file to show. */
+  view(item) {
+    this.viewedItem = item;
     this.emit();
   }
 
