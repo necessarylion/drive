@@ -126,7 +126,8 @@ You can also make the release and the tag on the GitHub website. The installers 
 
 The tag must be three plain numbers, like `v1.2.0`.
 
-The same workflow runs on every pull request. There it keeps the installers as workflow artifacts.
+On a pull request the workflow only checks the code (format, lint, tests). It does not build the installers.
+To try the builds without a release, start the workflow by hand on the Actions page.
 
 ## Where your files are
 

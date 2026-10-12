@@ -1,15 +1,12 @@
 name: Build
 
-# When it runs:
-#   - on every pull request and on every push to main,
-#   - when a tag like v1.2.0 is pushed,
-#   - when you start it by hand on the Actions page.
-#
-# What it makes:
-#   - It checks the code (format, lint, tests).
-#   - It builds the installers for macOS, Linux and Windows. All builds run at the same time.
-#   - On a tag, the installers go to the GitHub release of that tag.
-#   - On all other runs, the installers are kept as workflow artifacts. You can download them from the run page.
+# When it runs, and what it makes:
+#   - On every pull request and on every push to main: it only checks the code (format, lint, tests).
+#   - When a tag like v1.2.0 is pushed, or a release with a new tag is made on the GitHub website:
+#     it checks the code and builds the installers for macOS, Linux and Windows.
+#     All builds run at the same time. The installers go to the GitHub release of that tag.
+#   - When you start it by hand on the Actions page: it checks and builds, to try the builds without a release.
+#     The installers are kept as workflow artifacts. You can download them from the run page.
 #
 # The app is not signed with a paid certificate. macOS and Windows show a warning on the first start.
 on:
@@ -92,8 +89,9 @@ jobs:
   build:
     name: ${{ matrix.name }}
     needs: release
-    # The release job is skipped when there is no tag. The builds must still run then.
-    if: ${{ !failure() && !cancelled() }}
+    # The builds only run for a tag, or when the workflow is started by hand.
+    # In a run by hand there is no tag, so the release job is skipped. The builds must still run then.
+    if: ${{ !failure() && !cancelled() && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') }}
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
