@@ -1,0 +1,46 @@
+[package]
+name = "drive"
+version = "1.0.0"
+description = "Manages the files in one folder and backs them up to the cloud"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+[lib]
+name = "drive_lib"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+async-trait = "0.1"
+parking_lot = "0.12"
+tokio = { version = "1", features = ["fs", "net", "io-util", "time", "sync", "macros", "rt"] }
+# rustls, so no build needs OpenSSL on any system.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+sha2 = "0.10"
+hmac = "0.12"
+base64 = "0.22"
+getrandom = "0.3"
+roxmltree = "0.20"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+dunce = "1"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+module_name_repetitions = "allow"
+assigning_clones = "allow"

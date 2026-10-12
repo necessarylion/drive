@@ -1,0 +1,13 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "files": { "includes": ["ui/**"] },
+  "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
+  "javascript": { "formatter": { "quoteStyle": "single" } },
+  "linter": {
+    "rules": {
+      "recommended": true,
+      "complexity": { "noStaticOnlyClass": "off" },
+      "style": { "noDescendingSpecificity": "off" }
+    }
+  }
+}

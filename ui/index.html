@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Drive</title>
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <div id="app" class="app">
+      <aside id="sidebar" class="sidebar"></aside>
+      <section class="main">
+        <header id="toolbar" class="toolbar" data-tauri-drag-region></header>
+        <div class="workspace">
+          <div class="center">
+            <main id="browser" class="browser"></main>
+            <footer id="status" class="status"></footer>
+          </div>
+          <aside id="inspector" class="inspector"></aside>
+        </div>
+      </section>
+    </div>
+    <div id="viewer" class="viewer" hidden></div>
+    <div id="settings" class="overlay" hidden></div>
+    <div id="dialog" class="overlay" hidden></div>
+    <div id="menu" class="menu" hidden></div>
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

@@ -1,54 +1,34 @@
-APP = build/Drive.app
-SOURCES = Package.swift Sources Tests Scripts
+.PHONY: setup run app test format lint icon
 
-# The version number of a release build. The release workflow passes the tag, without the "v".
-VERSION ?= 0.0.0
+# rustup puts cargo here. Some shells do not have this folder on the PATH.
+export PATH := $(HOME)/.cargo/bin:$(PATH)
 
-.PHONY: app run release test format lint icon
+# Install the two dev tools: the Tauri CLI and Biome.
+setup:
+	bun install
 
-# Build the release binary and wrap it in a .app bundle.
+# Run the app. It builds again when the Rust code changes.
+run:
+	bun tauri dev
+
+# Build the app and its installers for this computer. They are in src-tauri/target/release/bundle.
 app:
-	swift build -c release
-	rm -rf $(APP)
-	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
-	cp .build/release/Drive $(APP)/Contents/MacOS/Drive
-	cp Resources/Info.plist $(APP)/Contents/Info.plist
-	cp Resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
-	codesign --force --sign - $(APP)
-
-run: app
-	open $(APP)
-
-# Build the app for both Apple silicon and Intel, stamp the version, and zip it for download.
-# The folder of the build output is not the same in every Swift version, so ask the build tool for it.
-RELEASE_FLAGS = -c release --arch arm64 --arch x86_64
-
-release:
-	swift build $(RELEASE_FLAGS)
-	rm -rf $(APP)
-	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
-	cp "$$(swift build $(RELEASE_FLAGS) --show-bin-path)/Drive" $(APP)/Contents/MacOS/Drive
-	# ponytail: macOS picks the look of the windows from the SDK version in the binary. "make app" writes 15.0,
-	# but the universal build writes the real SDK, so the download got the newer look. Write 15.0 here too.
-	# To move to the new look, remove this line and build "make app" with the real SDK version as well.
-	vtool -set-build-version macos 15.0 15.0 -replace -output $(APP)/Contents/MacOS/Drive $(APP)/Contents/MacOS/Drive
-	cp Resources/Info.plist $(APP)/Contents/Info.plist
-	cp Resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
-	plutil -replace CFBundleShortVersionString -string "$(VERSION)" $(APP)/Contents/Info.plist
-	plutil -replace CFBundleVersion -string "$(VERSION)" $(APP)/Contents/Info.plist
-	codesign --force --sign - $(APP)
-	ditto -c -k --keepParent $(APP) build/Drive-$(VERSION).zip
+	bun tauri build
 
 test:
-	swift test
+	cd src-tauri && cargo test
 
 format:
-	swift format --in-place --recursive $(SOURCES)
+	cd src-tauri && cargo fmt
+	bun run format
 
 lint:
-	swift format lint --strict --recursive $(SOURCES)
+	cd src-tauri && cargo fmt --check
+	cd src-tauri && cargo clippy --all-targets -- -D warnings
+	bun run lint
 
-# Rebuild AppIcon.icns from Resources/Logo.png. That file is exported from the Pencil design.
+# Rebuild the app icons from Resources/Logo.png. That file is exported from the Pencil design.
 icon:
-	swift Scripts/make-icon.swift Resources/Logo.png build/AppIcon.iconset
-	iconutil -c icns build/AppIcon.iconset -o Resources/AppIcon.icns
+	bun tauri icon Resources/Logo.png
+	rm -rf src-tauri/icons/android src-tauri/icons/ios
+	cp "src-tauri/icons/128x128@2x.png" ui/assets/logo.png
