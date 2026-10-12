@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::config::backup_config::BackupConfig;
 use crate::controllers::settings_controller::SettingsController;
@@ -20,7 +20,11 @@ pub async fn settings_config_for(settings: Settings<'_>, provider: BackupProvide
 }
 
 #[tauri::command]
-pub async fn settings_set_storage_root(settings: Settings<'_>, path: String) -> AppResult<()> {
-    settings.set_storage_root(&path);
+pub async fn settings_set_storage_root(app: AppHandle, settings: Settings<'_>, path: String) -> AppResult<()> {
+    // ponytail: the app starts again to use the new folder. That is one line, and no service can keep
+    // the old folder by mistake. Swap the folder inside the running services if the restart gets in the way.
+    if settings.set_storage_root(&path) {
+        app.restart();
+    }
     Ok(())
 }

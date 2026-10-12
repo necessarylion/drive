@@ -34,8 +34,13 @@ impl SettingsController {
     }
 
     /// Sets where the files are kept. An empty path means the default folder.
-    /// The change takes effect when the app starts the next time.
-    pub fn set_storage_root(&self, path: &str) {
+    /// Returns `true` when the folder changed. The app must start again then, because
+    /// every service is built on the folder (see `AppContainer::install`).
+    pub fn set_storage_root(&self, path: &str) -> bool {
+        if self.settings.get(AppConstants::STORAGE_ROOT_KEY).unwrap_or_default() == path {
+            return false;
+        }
         self.settings.set(AppConstants::STORAGE_ROOT_KEY, path);
+        true
     }
 }

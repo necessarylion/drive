@@ -65,7 +65,7 @@ impl BackupController {
         let config = self.config();
         let run = self.run.lock();
         let progress = self.service.progress();
-        let is_configured = !config.bucket.is_empty();
+        let is_configured = config.is_on();
         let is_paused = self.is_paused();
         let summary = if !is_configured {
             "Backup is off"
@@ -98,7 +98,7 @@ impl BackupController {
     /// Uploads new and changed files without asking. It never removes anything from the backup.
     // ponytail: each run lists the whole backup folder. Fine for a personal drive; keep a local index if it gets slow.
     pub fn auto_back_up(self: &Arc<Self>) {
-        if self.config().bucket.is_empty() || self.is_paused() {
+        if !self.config().is_on() || self.is_paused() {
             return;
         }
         tauri::async_runtime::spawn(Arc::clone(self).run_auto());
@@ -160,6 +160,10 @@ impl BackupController {
     pub fn save_settings(self: &Arc<Self>, config: &BackupConfig) {
         config.save(&self.settings);
         self.service.follow(&self.config().destination());
+        if !config.is_on() {
+            // The user turned the backup off. Stop the one that runs now.
+            self.cancel.notify_waiters();
+        }
         {
             let mut run = self.run.lock();
             // A plan that waits for an answer was made for the old place.

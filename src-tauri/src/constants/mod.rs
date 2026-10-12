@@ -17,6 +17,8 @@ impl AppConstants {
     pub const STORAGE_ROOT_ENV: &'static str = "DRIVE_STORAGE_ROOT";
 
     pub const BACKUP_PROVIDER_KEY: &'static str = "backup.provider";
+    /// "false" turns the backup off. Anything else, also no value, means on.
+    pub const BACKUP_ENABLED_KEY: &'static str = "backup.enabled";
     pub const AZURE_ACCOUNT_KEY: &'static str = "azure.account";
     pub const GOOGLE_CLIENT_ID_KEY: &'static str = "google.clientID";
     pub const GOOGLE_CLIENT_SECRET_KEY: &'static str = "google.clientSecret";
