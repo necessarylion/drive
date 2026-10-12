@@ -91,7 +91,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         # The release is there already when the tag was made on the GitHub website.
-        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --generate-notes
+        # A tag with a "-" in it, like v1.2.0-beta.1, becomes a pre-release. It is then not the "latest" release.
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then exit 0; fi
+          case "$GITHUB_REF_NAME" in
+            *-*) gh release create "$GITHUB_REF_NAME" --generate-notes --prerelease ;;
+            *) gh release create "$GITHUB_REF_NAME" --generate-notes ;;
+          esac
 
   build:
     name: ${{ matrix.name }}
