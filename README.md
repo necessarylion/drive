@@ -124,7 +124,8 @@ GitHub Actions then builds the app for macOS, Windows and Linux, for every chip 
 All builds run at the same time. The installers are added to the release of that tag.
 You can also make the release and the tag on the GitHub website. The installers are added to it.
 
-The tag must be three plain numbers, like `v1.2.0`.
+The tag is three numbers, like `v1.2.0`. For a test version, add a name and a number: `v1.2.0-beta.1`.
+Such a tag becomes a pre-release, so it is not the "latest" release.
 
 On a pull request the workflow only checks the code (format, lint, tests). It does not build the installers.
 To try the builds without a release, start the workflow by hand on the Actions page.

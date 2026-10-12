@@ -39,7 +39,7 @@ DRIVE_STORAGE_ROOT=/tmp/drive-demo make run
 
 Run `make format`, `make lint` and `make test` before a pull request. Clippy runs with `pedantic` and warnings are errors. The style is in `src-tauri/rustfmt.toml` (120 columns) and `biome.json` (2 spaces, 120 columns, single quotes).
 
-A release is made by pushing a tag that starts with `v` and has three plain numbers, like `v1.2.0`. `.github/workflows/build.yml` then builds for macOS (Apple silicon, Intel), Linux (x64, arm64) and Windows (x64, arm64, 32-bit) in parallel, and adds the installers to the GitHub release. On a pull request and on a push to `main`, the workflow only runs the checks (format, Clippy, tests, Biome). Start it by hand on the Actions page to try the builds without a release. The app is only signed ad hoc.
+A release is made by pushing a tag that starts with `v` and has three numbers, like `v1.2.0`. A tag like `v1.2.0-beta.1` makes a pre-release; the MSI installer then gets the version `1.2.0.1`, because it only takes numbers. `.github/workflows/build.yml` then builds for macOS (Apple silicon, Intel), Linux (x64, arm64) and Windows (x64, arm64, 32-bit) in parallel, and adds the installers to the GitHub release. On a pull request and on a push to `main`, the workflow only runs the checks (format, Clippy, tests, Biome). Start it by hand on the Actions page to try the builds without a release. The app is only signed ad hoc.
 
 ## Architecture
 

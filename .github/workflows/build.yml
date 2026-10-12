@@ -1,4 +1,11 @@
-name: Build
+        # The release is there already when the tag was made on the GitHub website.
+        # A tag with a "-" in it, like v1.2.0-beta.1, becomes a pre-release. It is then not the "latest" release.
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then exit 0; fi
+          case "$GITHUB_REF_NAME" in
+            *-*) gh release create "$GITHUB_REF_NAME" --generate-notes --prerelease ;;
+            *) gh release create "$GITHUB_REF_NAME" --generate-notes ;;
+          esacname: Build
 
 # When it runs, and what it makes:
 #   - On every pull request and on every push to main: it only checks the code (format, lint, tests).
@@ -148,13 +155,23 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # The tag v1.2.0 gives the app version 1.2.0.
-      # ponytail: the tag must be three plain numbers. The MSI installer does not accept a tag like v1.2.0-beta.
+      # The tag v1.2.0 gives the app version 1.2.0. The tag v1.2.0-beta.1 gives 1.2.0-beta.1.
+      # The MSI installer of Windows only takes numbers. So it gets its own version:
+      # 1.2.0 for a normal tag, and 1.2.0.1 for beta 1 (the last number of the tag goes to the end).
       - name: Set the app version from the tag
         if: env.IS_TAG == 'true'
         shell: bash
         run: |
-          jq --arg version "${GITHUB_REF_NAME#v}" '.version = $version' src-tauri/tauri.conf.json > tauri.conf.tmp
+          jq --arg version "${GITHUB_REF_NAME#v}" '
+            ($version | split("-")) as $parts
+            | .version = $version
+            | .bundle.windows.wix.version = (
+                if ($parts | length) > 1
+                then $parts[0] + "." + ([$parts[1] | scan("[0-9]+")] | last // "0")
+                else $parts[0]
+                end
+              )
+          ' src-tauri/tauri.conf.json > tauri.conf.tmp
           mv tauri.conf.tmp src-tauri/tauri.conf.json
 
       # With a tagName, the action also adds the installers to the release of that tag.
