@@ -139,12 +139,15 @@ export class ToolbarView extends View {
   }
 
   crumb(title, level) {
-    const isCurrent = level === this.drive.path.length;
+    const drive = this.drive;
+    const isCurrent = level === drive.path.length;
+    // Items dropped on a folder of the path go into that folder.
+    const path = level === 0 ? drive.overview.root : drive.path[level - 1].path;
     return Dom.el('button', {
       type: 'button',
       class: `crumb${isCurrent ? ' is-current' : ''}`,
       text: title,
-      data: { action: 'crumb', level },
+      data: { action: 'crumb', level, folder: '1', path },
     });
   }
 

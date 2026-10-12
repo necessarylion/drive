@@ -150,17 +150,24 @@ jobs:
 
       # The tag v1.2.0 gives the app version 1.2.0.
       # ponytail: the tag must be three plain numbers. The MSI installer does not accept a tag like v1.2.0-beta.
+      # A release build also makes the signed files that the app updates itself from.
+      # Other builds do not, so they need no signing key.
       - name: Set the app version from the tag
         if: env.IS_TAG == 'true'
         shell: bash
         run: |
-          jq --arg version "${GITHUB_REF_NAME#v}" '.version = $version' src-tauri/tauri.conf.json > tauri.conf.tmp
+          jq --arg version "${GITHUB_REF_NAME#v}" '.version = $version | .bundle.createUpdaterArtifacts = true' \
+            src-tauri/tauri.conf.json > tauri.conf.tmp
           mv tauri.conf.tmp src-tauri/tauri.conf.json
 
       # With a tagName, the action also adds the installers to the release of that tag.
+      # For a release it also adds latest.json. That file tells a running app where the new version is.
+      # The key signs the update files. Its public half is in tauri.conf.json. The key has no password.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tauriScript: bun tauri
           args: --target ${{ matrix.target }}

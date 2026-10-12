@@ -319,6 +319,29 @@ impl DriveService {
         result
     }
 
+    /// Deletes what has been in the trash for longer than `AppConstants::TRASH_KEEP_DAYS`.
+    /// `now` is in milliseconds since 1970. Returns how many items it deleted.
+    // ponytail: the change date of the slot folder is the time the item went to the trash. If something else
+    // writes into the slot, the item only stays longer. Save the date in the metadata if that is not exact enough.
+    pub fn empty_old_trash(&self, now: i64) -> usize {
+        let limit = now - AppConstants::TRASH_KEEP_DAYS * AppConstants::MILLIS_PER_DAY;
+        let mut deleted = 0;
+        for slot in self.files.contents(&self.trash_root) {
+            // A date of 0 means the date could not be read. Such a slot is kept.
+            if !slot.is_folder || slot.modified <= 0 || slot.modified > limit {
+                continue;
+            }
+            if self.files.delete(&slot.path).is_ok() {
+                self.metadata.lock().trash_origins.remove(&slot.name);
+                deleted += 1;
+            }
+        }
+        if deleted > 0 {
+            self.save();
+        }
+        deleted
+    }
+
     // MARK: - Helpers
 
     fn trash_each(&self, paths: &[PathBuf]) -> AppResult<()> {

@@ -34,5 +34,11 @@
     "macOS": {
       "signingIdentity": "-"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwMDhEQzdBRkY1NTc2QTgKUldTb2RsWC9ldHdJY0NVbXdJNzdDb1RQTkZNb1ltQm5aMjVJSlRuTEFFMVZOekhLMWg2N21mSSsK",
+      "endpoints": ["https://github.com/necessarylion/drive/releases/latest/download/latest.json"]
+    }
   }
 }

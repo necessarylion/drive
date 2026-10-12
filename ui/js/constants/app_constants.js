@@ -10,6 +10,12 @@ export class AppConstants {
   /** How long to wait for more backup steps before the lists are read again. */
   static REFRESH_DELAY_MS = 400;
   static AWS_DEFAULT_REGION = 'us-east-1';
+  /** The mouse must move this far with the button down before a drag starts. */
+  static DRAG_START_PIXELS = 5;
+  /** How often the window looks for a newer version of the app: every 6 hours. */
+  static UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
+  /** An item stays in the trash this long. The Rust side has the same number, and does the deleting. */
+  static TRASH_KEEP_DAYS = 30;
 
   static SECTIONS = [
     {
@@ -38,7 +44,7 @@ export class AppConstants {
       title: 'Trash',
       icon: 'trash',
       emptyTitle: 'Trash is empty',
-      emptyMessage: 'Items you move to the trash show up here.',
+      emptyMessage: `Items you move to the trash show up here. Drive deletes them forever after ${AppConstants.TRASH_KEEP_DAYS} days.`,
     },
   ];
 

@@ -41,6 +41,8 @@ Run `make format`, `make lint` and `make test` before a pull request. Clippy run
 
 A release is made by pushing a tag that starts with `v` and has three plain numbers, like `v1.2.0`. `.github/workflows/build.yml` then builds for macOS (Apple silicon, Intel), Linux (x64, arm64) and Windows (x64, arm64, 32-bit) in parallel, and adds the installers to the GitHub release. On a pull request and on a push to `main`, the workflow only runs the checks (format, Clippy, tests, Biome). Start it by hand on the Actions page to try the builds without a release. The app is only signed ad hoc.
 
+A release build also makes the signed update files and `latest.json` (the workflow sets `bundle.createUpdaterArtifacts` for a tag only). It needs the repository secret `TAURI_SIGNING_PRIVATE_KEY`. Other builds, also `make app`, need no key.
+
 ## Architecture
 
 The code goes in one direction: view → controller → service → repository → model. Both sides follow it, and both use dependency injection through the constructor.
@@ -49,7 +51,7 @@ The code goes in one direction: view → controller → service → repository �
 
 - **`lib.rs`**: `AppContainer::install` is the one place where all parts are built and wired together. Add new services and repositories there. New commands must also be added to `generate_handler!` in `run`.
 - **`commands/`**: the functions the window can call (`#[tauri::command]`). They are the "route" layer: each one only hands the call to a controller. All of them are `async`, so none blocks the main thread.
-- **`controllers/`**: `DriveController` builds what the window shows (`ItemView` = an item plus color, summary, pin and backup state). `BackupController` keeps the state of a running backup. `SettingsController` reads and saves the storage folder.
+- **`controllers/`**: `DriveController` builds what the window shows (`ItemView` = an item plus color, summary, pin and backup state). `BackupController` keeps the state of a running backup. `SettingsController` reads and saves the storage folder. `UpdateController` asks `tauri-plugin-updater` for a newer release and installs it.
 - **`services/`**: the rules. `DriveService` (list, add, rename, star, pin, trash), `BackupService` (compare with the backup, upload, restore), `AwsSigner` (SigV4).
 - **`repositories/`**: all outside access. `FileRepository` (disk), `MetadataRepository` and `BackupStateRepository` (JSON files), `SettingsRepository` (`settings.json`), `KeychainRepository` (the keychain of the system, through the `keyring` crate), `HttpTransport` (all HTTP), and one `BackupRepository` per provider.
 - **`config/` and `constants/`**: `AppConfig` (where data is stored), `BackupConfig` (provider, bucket, region, prefix), `AppConstants` (all keys and limits).
@@ -60,7 +62,8 @@ The code goes in one direction: view → controller → service → repository �
 
 - **`main.js`**: `AppContainer` builds and wires all parts of the window.
 - **`views/`**: one class per part of the window. Every view extends `View`.
-- **`controllers/`**: `DriveController` owns navigation, selection, sort, view mode and the item lists. `BackupController` holds the backup status.
+- **`controllers/`**: `DriveController` owns navigation, selection, sort, view mode and the item lists. `BackupController` holds the backup status. `UpdateController` looks for a newer version and asks before it installs one.
+- **`views/item_drag.js`**: `ItemDrag` is not a view. Like `Shortcuts`, it listens on the whole page.
 - **`repositories/`**: `TauriGateway` is the only class that touches `window.__TAURI__`. The other repositories call commands through it.
 
 ### Things to know before you change code
@@ -75,6 +78,9 @@ The code goes in one direction: view → controller → service → repository �
 - **The window sends paths, so the services check them.** `DriveService::require_item_in_drive` stops rename, trash and duplicate for anything outside `Files/`. `trash_slot` is the guard that stops restore and delete from touching anything outside the trash. `drive_open` and `drive_reveal` only take paths inside the storage root. The asset protocol (used to show pictures and PDFs) is only allowed for the storage root; see `AppContainer::install`.
 - **The close button hides the main window.** `AppContainer::keep_alive` stops the close and hides it, so the window comes back as it was (Dock icon or tray). Only "Quit Drive" stops the app. Viewer windows (label `viewer-…`) close for real.
 - **The trash uses slots.** A trashed item moves to `Trash/<random id>/<name>`. `metadata.trash_origins` maps the slot id to the old path.
+- **The trash empties itself.** `DriveService::empty_old_trash` deletes a slot when the change date of the slot folder is older than `AppConstants::TRASH_KEEP_DAYS` (30). `AppContainer::keep_trash_clean` runs it at the start and then once per hour.
+- **Items are dragged with pointer events.** `ItemDrag` (window side) moves items onto any element with `data-folder` and `data-path`. It does not use HTML drag and drop, because that does not work on Windows while the window takes file drops from the system. Files from outside the app still come in through `Shortcuts.onFileDrop`, and use the same `data-folder` elements.
+- **The app updates itself.** The window calls `update_check` at the start and every 6 hours (`UpdateController` on both sides). It asks the user, then `update_install` downloads, installs and restarts. The address of `latest.json` and the public key are in `tauri.conf.json` under `plugins.updater`. A debug build never looks for updates.
 - **How the automatic backup starts.** Every action that changes files ends in `DriveController.didChange` (window side). It reads the lists again and calls `backup.autoBackUp()`. A new action that changes files must go through `didChange` too.
 - **How the window learns about backup steps.** `BackupService` and `BackupController` call `BackupObserver::backup_changed`. `WindowObserver` (in `lib.rs`) turns that into the `backup-changed` event. The window then asks for `backup_status` again, and the drive lists are read again a moment later.
 - **Backup rules.** `BackupService::plan` only compares; `run` does the work. A file uploads when its size differs or the local copy is newer (the same rule as `aws s3 sync`). The automatic backup never removes anything from the backup. Only the manual "Back Up Now" can, and it asks first. Restore never replaces a local file, and `local_path` refuses keys that could write outside the drive.

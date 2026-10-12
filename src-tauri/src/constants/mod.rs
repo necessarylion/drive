@@ -11,6 +11,11 @@ impl AppConstants {
     pub const TEXT_PREVIEW_BYTES: u64 = 256 * 1024;
     /// How long the app waits for the user to finish the Google sign-in in the browser.
     pub const GOOGLE_SIGN_IN_SECONDS: u64 = 300;
+    /// An item stays in the trash this long. Then Drive deletes it forever. The window shows the same number.
+    pub const TRASH_KEEP_DAYS: i64 = 30;
+    pub const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
+    /// How often the app looks for old items in the trash while it runs.
+    pub const TRASH_CHECK_SECONDS: u64 = 60 * 60;
 
     pub const APP_FOLDER: &'static str = "Drive";
     pub const SETTINGS_FILE: &'static str = "settings.json";

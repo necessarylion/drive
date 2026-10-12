@@ -98,7 +98,8 @@ export class DriveController extends EventTarget {
       latest = Math.max(latest, item.modified);
     }
     const parts = [Format.items(this.items.length), Format.bytes(totalSize)];
-    if (this.items.length > 0) parts.push(`Edited ${Format.relative(latest)}`);
+    if (this.section === 'trash') parts.push(`Deleted forever after ${AppConstants.TRASH_KEEP_DAYS} days`);
+    else if (this.items.length > 0) parts.push(`Edited ${Format.relative(latest)}`);
     return parts.join(' · ');
   }
 
@@ -441,7 +442,12 @@ export class DriveController extends EventTarget {
 
   async askMove(paths) {
     const folder = await this.repository.pickFolder('Move', this.currentFolder);
-    if (!folder) return;
+    if (folder) await this.move(paths, folder);
+  }
+
+  /** Moves items of the drive into a folder of the drive. */
+  async move(paths, folder) {
+    if (paths.length === 0) return;
     await this.busy(this.repository.add(paths, folder));
     await this.didChange();
   }

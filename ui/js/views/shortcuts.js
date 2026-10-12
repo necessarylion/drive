@@ -153,8 +153,7 @@ export class Shortcuts {
   }
 
   /** Files from outside the app. Dropped on a folder, they go into it. Dropped elsewhere, they go into the open folder. */
-  // ponytail: items of the drive itself cannot be dragged onto a folder. Use "Move to…" for that.
-  // HTML drag and drop does not work on Windows while the window takes file drops from the system.
+  // Items of the drive itself are dragged with `ItemDrag`.
   onFileDrop(event) {
     const payload = event.payload;
     document.body.classList.toggle('is-dropping', payload.type === 'enter' || payload.type === 'over');

@@ -15,16 +15,18 @@ mod viewer_window;
 
 use std::error::Error;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tauri::{App, AppHandle, Emitter, Manager, RunEvent, Window, WindowEvent};
 
 use crate::app_menu::AppMenu;
-use crate::commands::{backup_commands, drive_commands, settings_commands};
+use crate::commands::{backup_commands, drive_commands, settings_commands, update_commands};
 use crate::config::app_config::AppConfig;
 use crate::constants::AppConstants;
 use crate::controllers::backup_controller::BackupController;
 use crate::controllers::drive_controller::DriveController;
 use crate::controllers::settings_controller::SettingsController;
+use crate::controllers::update_controller::UpdateController;
 use crate::repositories::azure_repository::AzureRepository;
 use crate::repositories::backup_state_repository::BackupStateRepository;
 use crate::repositories::file_repository::FileRepository;
@@ -95,20 +97,34 @@ impl AppContainer {
         let storage_root = files.prepared_folder(&config.storage_root);
         app.asset_protocol_scope().allow_directory(storage_root, true)?;
 
-        app.manage(Arc::new(DriveController::new(
+        let drive = Arc::new(DriveController::new(
             drive_service,
             backup_service.clone(),
             settings.clone(),
-        )));
+        ));
+        app.manage(drive.clone());
+        tauri::async_runtime::spawn(Self::keep_trash_clean(drive));
         app.manage(Arc::new(BackupController::new(
             backup_service,
             settings.clone(),
             observer,
         )));
         app.manage(Arc::new(SettingsController::new(settings, default_root)));
+        app.manage(Arc::new(UpdateController::new(app.handle().clone())));
         AppMenu::install(app)?;
         TrayMenu::install(app)?;
         Ok(())
+    }
+
+    /// Deletes old items from the trash when the app starts, and then again and again while it runs.
+    /// The app can run for days, because the close button only hides the window.
+    async fn keep_trash_clean(drive: Arc<DriveController>) {
+        let mut timer = tokio::time::interval(Duration::from_secs(AppConstants::TRASH_CHECK_SECONDS));
+        loop {
+            // The first tick comes at once.
+            timer.tick().await;
+            drive.empty_old_trash();
+        }
     }
 
     /// The close button only hides the main window. Drive keeps running, and the window comes back as it was.
@@ -142,6 +158,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(AppContainer::install)
         .on_window_event(AppContainer::keep_alive)
         .invoke_handler(tauri::generate_handler![
@@ -180,6 +197,8 @@ pub fn run() {
             settings_commands::settings_load,
             settings_commands::settings_config_for,
             settings_commands::settings_set_storage_root,
+            update_commands::update_check,
+            update_commands::update_install,
         ])
         .build(tauri::generate_context!())
         .expect("Drive could not start")
