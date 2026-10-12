@@ -2,7 +2,7 @@ import { Dom } from '../support/dom.js';
 import { View } from './view.js';
 
 /**
- * Shows one file over the window.
+ * Shows one file. It fills a viewer window, which the user closes with the close button of the window.
  */
 // ponytail: the webview of the system does the showing. Pictures, video, audio and text work everywhere.
 // A PDF works on macOS and Windows. Linux shows the "no preview" page for it; add pdf.js if that is needed.
@@ -14,10 +14,6 @@ export class ViewerView extends View {
     this.shownPath = null;
     this.listen('click');
     this.watch(drive);
-  }
-
-  get isOpen() {
-    return this.drive.viewedItem !== null;
   }
 
   render() {
@@ -32,7 +28,6 @@ export class ViewerView extends View {
     this.shownPath = item.path;
     Dom.fill(this.root, [
       Dom.el('header', { class: 'viewer-bar', 'data-tauri-drag-region': true }, [
-        Dom.button({ icon: 'x', class: 'tool', title: 'Close', data: { action: 'close' } }),
         Dom.el('div', { class: 'viewer-title' }, [
           Dom.el('div', { class: 'viewer-name', text: item.name }),
           Dom.el('div', { class: 'viewer-note', text: 'Saved to Drive' }),
@@ -94,9 +89,6 @@ export class ViewerView extends View {
     const item = this.drive.viewedItem;
     if (!element || !item) return;
     switch (element.dataset.action) {
-      case 'close':
-        this.drive.closeViewer();
-        break;
       case 'download':
         this.drive.askDownloadCopy([item.path]);
         break;

@@ -89,7 +89,7 @@ export class SettingsView extends View {
           Dom.button({ label: 'Choose…', data: { action: 'chooseFolder' } }),
         ]),
       ],
-      'This is where Drive keeps your files. A change takes effect after you quit and open Drive again. ' +
+      'This is where Drive keeps your files. Drive opens again right after a change, to show the new folder. ' +
         'Files in the old folder stay there. Drive does not move them.',
     );
   }
@@ -101,6 +101,10 @@ export class SettingsView extends View {
       options.push(Dom.el('option', { value: provider.id, text: provider.title, selected: provider.id === id }));
     }
     const rows = [
+      Dom.el('label', { class: 'form-row' }, [
+        Dom.el('span', { class: 'form-label', text: 'Back up my files' }),
+        Dom.el('input', { type: 'checkbox', checked: this.draft.enabled, data: { field: 'enabled' } }),
+      ]),
       Dom.el('label', { class: 'form-row' }, [
         Dom.el('span', { class: 'form-label', text: 'Provider' }),
         Dom.el('select', { class: 'field', data: { field: 'provider' } }, options),
@@ -124,7 +128,8 @@ export class SettingsView extends View {
     return this.section(
       'Backup',
       rows,
-      'Drive uploads new and changed files by itself when a bucket, container or folder is set. ' +
+      'Drive uploads new and changed files by itself when the backup is on and a bucket, container or folder is set. ' +
+        'Turning it off removes nothing from the backup. ' +
         'A change here takes effect after you choose Save.',
     );
   }
@@ -246,14 +251,16 @@ export class SettingsView extends View {
 
   onInput(event) {
     const field = event.target.dataset.field;
-    if (field && field !== 'provider') this.draft[field] = event.target.value;
+    if (field === 'enabled') this.draft.enabled = event.target.checked;
+    else if (field && field !== 'provider') this.draft[field] = event.target.value;
     this.syncButtons();
   }
 
   /** Each provider has its own bucket and folder, so show the saved ones of the picked provider. */
   async onChange(event) {
     if (event.target.dataset.field !== 'provider') return;
-    this.draft = await this.settings.configFor(event.target.value);
+    // The on/off switch is one for all providers, so keep what the user set.
+    this.draft = { ...(await this.settings.configFor(event.target.value)), enabled: this.draft.enabled };
     await this.refreshKeys();
   }
 

@@ -16,7 +16,6 @@ import { Shortcuts } from './views/shortcuts.js';
 import { SidebarView } from './views/sidebar_view.js';
 import { StatusBarView } from './views/status_bar_view.js';
 import { ToolbarView } from './views/toolbar_view.js';
-import { ViewerView } from './views/viewer_view.js';
 
 /** The one place where the parts of the window are built and wired together. */
 class AppContainer {
@@ -36,16 +35,14 @@ class AppContainer {
     const renderer = new ItemRenderer(this.drive);
     const inspector = new InspectorView(page.getElementById('inspector'), this.drive, this.backup, renderer, menus);
     const toolbar = new ToolbarView(page.getElementById('toolbar'), this.drive, menus);
-    const viewer = new ViewerView(page.getElementById('viewer'), this.drive);
     this.views = [
       new SidebarView(page.getElementById('sidebar'), this.drive, this.backup, menus),
       new BrowserView(page.getElementById('browser'), this.drive, renderer, inspector, menus),
       new StatusBarView(page.getElementById('status'), this.drive, this.backup, menus),
       inspector,
       toolbar,
-      viewer,
     ];
-    this.shortcuts = new Shortcuts(gateway, this.drive, this.backup, { toolbar, dialogs, menu, settingsView, viewer });
+    this.shortcuts = new Shortcuts(gateway, this.drive, this.backup, { toolbar, dialogs, menu, settingsView });
   }
 
   async start() {

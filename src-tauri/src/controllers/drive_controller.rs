@@ -123,7 +123,7 @@ impl DriveController {
     // MARK: - Helpers
 
     fn views(&self, items: Vec<DriveItem>, section: DriveSection) -> Vec<ItemView> {
-        let is_configured = !BackupConfig::saved(&self.settings).bucket.is_empty();
+        let is_configured = BackupConfig::saved(&self.settings).is_on();
         let mut views = Vec::with_capacity(items.len());
         for item in items {
             views.push(self.view(item, section, is_configured));

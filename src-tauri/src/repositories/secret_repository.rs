@@ -16,9 +16,10 @@ pub trait SecretRepository: Send + Sync {
 /// the Keychain on a Mac, the Credential Manager on Windows, the Secret Service on Linux.
 pub struct KeychainRepository {
     service: String,
-    /// The keys we already read. macOS asks the user on every read of the Keychain when they
+    /// What we already read. macOS asks the user on every read of the Keychain when they
     /// press "Allow" and not "Always Allow", so we read each key only one time per launch.
-    cache: Mutex<HashMap<BackupProvider, Credentials>>,
+    /// `None` is kept too: a read that gave nothing (no keys, or the user said no) is not tried again.
+    cache: Mutex<HashMap<BackupProvider, Option<Credentials>>>,
 }
 
 impl KeychainRepository {
@@ -33,6 +34,11 @@ impl KeychainRepository {
         keyring::Entry::new(&self.service, provider.raw()).map_err(|error| Self::failed(&error))
     }
 
+    fn read(&self, provider: BackupProvider) -> Option<Credentials> {
+        let text = self.entry(provider).ok()?.get_password().ok()?;
+        serde_json::from_str(&text).ok()
+    }
+
     fn failed(error: &keyring::Error) -> AppError {
         AppError::KeychainFailed(error.to_string())
     }
@@ -40,13 +46,15 @@ impl KeychainRepository {
 
 impl SecretRepository for KeychainRepository {
     fn load(&self, provider: BackupProvider) -> Option<Credentials> {
-        if let Some(cached) = self.cache.lock().get(&provider) {
-            return Some(cached.clone());
+        // The lock is held during the read on purpose. Two reads at the same time (the start of the
+        // app does that) would each make macOS ask. Now the second one waits and gets the cached keys.
+        let mut cache = self.cache.lock();
+        if let Some(cached) = cache.get(&provider) {
+            return cached.clone();
         }
-        let text = self.entry(provider).ok()?.get_password().ok()?;
-        let credentials: Credentials = serde_json::from_str(&text).ok()?;
-        self.cache.lock().insert(provider, credentials.clone());
-        Some(credentials)
+        let credentials = self.read(provider);
+        cache.insert(provider, credentials.clone());
+        credentials
     }
 
     fn save(&self, credentials: &Credentials, provider: BackupProvider) -> AppResult<()> {
@@ -54,12 +62,12 @@ impl SecretRepository for KeychainRepository {
         self.entry(provider)?
             .set_password(&text)
             .map_err(|error| Self::failed(&error))?;
-        self.cache.lock().insert(provider, credentials.clone());
+        self.cache.lock().insert(provider, Some(credentials.clone()));
         Ok(())
     }
 
     fn delete(&self, provider: BackupProvider) {
-        self.cache.lock().remove(&provider);
+        self.cache.lock().insert(provider, None);
         if let Ok(entry) = self.entry(provider) {
             let _ = entry.delete_credential();
         }

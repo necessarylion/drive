@@ -7,6 +7,7 @@ use tauri_plugin_opener::OpenerExt;
 use crate::controllers::drive_controller::DriveController;
 use crate::models::drive::{DriveSection, FolderColor, FolderRef, ItemSorter, ItemView, Overview, SortField};
 use crate::models::error::{AppError, AppResult};
+use crate::viewer_window::ViewerWindow;
 
 type Drive<'a> = State<'a, Arc<DriveController>>;
 
@@ -112,6 +113,16 @@ pub async fn drive_restore(drive: Drive<'_>, paths: Vec<PathBuf>) -> AppResult<(
 #[tauri::command]
 pub async fn drive_delete_forever(drive: Drive<'_>, paths: Vec<PathBuf>) -> AppResult<()> {
     drive.delete_forever(&paths)
+}
+
+/// Shows a file in a window of its own.
+#[tauri::command]
+pub async fn drive_view(app: AppHandle, drive: Drive<'_>, path: PathBuf) -> AppResult<()> {
+    // The window sends the path. Only show what is ours.
+    if !drive.is_in_storage(&path) {
+        return Err(AppError::OutsideDrive);
+    }
+    ViewerWindow::open(&app, &path).map_err(|error| AppError::Io(std::io::Error::other(error.to_string())))
 }
 
 /// Opens a file in the app the system uses for it.

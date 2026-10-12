@@ -25,12 +25,17 @@ impl AppMenu {
         Ok(())
     }
 
-    /// Brings the window to the front and shows the Settings dialog in it.
-    pub fn open_settings(app: &AppHandle) {
+    /// Brings the window to the front. It also shows it again after the close button hid it.
+    pub fn show_window(app: &AppHandle) {
         if let Some(window) = app.get_webview_window(AppConstants::MAIN_WINDOW) {
             let _ = window.show();
             let _ = window.set_focus();
         }
+    }
+
+    /// Brings the window to the front and shows the Settings dialog in it.
+    pub fn open_settings(app: &AppHandle) {
+        Self::show_window(app);
         let _ = app.emit(AppConstants::OPEN_SETTINGS_EVENT, ());
     }
 

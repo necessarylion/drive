@@ -42,17 +42,25 @@ export class ItemRenderer {
     }
   }
 
-  /** Shows the picture itself for an image. Shows the type icon for everything else. */
-  // ponytail: only pictures get a real preview, and the full file is loaded for it.
-  // Make small preview files on the Rust side if big pictures make the grid slow.
+  /** Shows the picture itself for an image, and the first page for a PDF. Shows the type icon for everything else. */
+  // ponytail: only pictures and PDFs get a real preview, and the full file is loaded for it.
+  // Make small preview files on the Rust side if big files make the grid slow.
+  // A PDF in an <img> only works in the webview of macOS. Windows and Linux show the icon; add pdf.js if that is needed.
   thumbnail(item, className) {
     const box = Dom.el('div', { class: `thumbnail kind-bg-${item.isFolder ? 'folder' : item.kind} ${className}` });
-    if (item.kind === 'image' && this.drive.section !== 'trash') {
-      box.append(Dom.el('img', { src: this.drive.fileUrl(item), alt: '', loading: 'lazy', draggable: 'false' }));
+    if (this.hasPicture(item) && this.drive.section !== 'trash') {
+      const page = item.kind === 'pdf' ? 'is-page' : null;
+      box.append(
+        Dom.el('img', { class: page, src: this.drive.fileUrl(item), alt: '', loading: 'lazy', draggable: 'false' }),
+      );
     } else {
       box.append(this.kindIcon(item, 'thumbnail-icon'));
     }
     return box;
+  }
+
+  hasPicture(item) {
+    return item.kind === 'image' || (item.kind === 'pdf' && navigator.userAgent.includes('Mac'));
   }
 
   /** What every clickable item carries: the action, the path, and the "selected" look. */

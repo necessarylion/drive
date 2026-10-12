@@ -11,11 +11,12 @@ pub mod models;
 pub mod repositories;
 pub mod services;
 mod tray;
+mod viewer_window;
 
 use std::error::Error;
 use std::sync::Arc;
 
-use tauri::{App, AppHandle, Emitter, Manager};
+use tauri::{App, AppHandle, Emitter, Manager, RunEvent, Window, WindowEvent};
 
 use crate::app_menu::AppMenu;
 use crate::commands::{backup_commands, drive_commands, settings_commands};
@@ -109,6 +110,32 @@ impl AppContainer {
         TrayMenu::install(app)?;
         Ok(())
     }
+
+    /// The close button only hides the main window. Drive keeps running, and the window comes back as it was.
+    /// "Quit Drive" in the menu or in the tray is what stops the app. A viewer window closes for real.
+    fn keep_alive(window: &Window, event: &WindowEvent) {
+        if window.label() != AppConstants::MAIN_WINDOW {
+            return;
+        }
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = window.hide();
+        }
+    }
+
+    /// A click on the Dock icon (Mac) shows the hidden window again.
+    // ponytail: Windows and Linux bring the window back from the tray ("Open Drive").
+    // Add tauri-plugin-single-instance if starting Drive a second time should do it too.
+    // Tauri gives the event by value, so the shape of this function is fixed.
+    #[allow(clippy::needless_pass_by_value)]
+    fn reopen(app: &AppHandle, event: RunEvent) {
+        #[cfg(target_os = "macos")]
+        if let RunEvent::Reopen { .. } = event {
+            AppMenu::show_window(app);
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app, event);
+    }
 }
 
 pub fn run() {
@@ -116,6 +143,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(AppContainer::install)
+        .on_window_event(AppContainer::keep_alive)
         .invoke_handler(tauri::generate_handler![
             drive_commands::drive_list,
             drive_commands::drive_columns,
@@ -135,6 +163,7 @@ pub fn run() {
             drive_commands::drive_restore,
             drive_commands::drive_delete_forever,
             drive_commands::drive_open,
+            drive_commands::drive_view,
             drive_commands::drive_reveal,
             backup_commands::backup_status,
             backup_commands::backup_auto,
@@ -152,6 +181,7 @@ pub fn run() {
             settings_commands::settings_config_for,
             settings_commands::settings_set_storage_root,
         ])
-        .run(tauri::generate_context!())
-        .expect("Drive could not start");
+        .build(tauri::generate_context!())
+        .expect("Drive could not start")
+        .run(AppContainer::reopen);
 }

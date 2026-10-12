@@ -72,6 +72,10 @@ export class DriveRepository {
     return this.gateway.invoke('drive_delete_forever', { paths });
   }
 
+  view(path) {
+    return this.gateway.invoke('drive_view', { path });
+  }
+
   open(path) {
     return this.gateway.invoke('drive_open', { path });
   }

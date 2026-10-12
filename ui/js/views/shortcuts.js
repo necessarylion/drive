@@ -13,7 +13,6 @@ export class Shortcuts {
     this.dialogs = views.dialogs;
     this.menu = views.menu;
     this.settingsView = views.settingsView;
-    this.viewer = views.viewer;
     this.isMac = navigator.userAgent.includes('Mac');
     this.dropFiles = this.onFileDrop.bind(this);
     this.openSettings = this.settings.bind(this);
@@ -54,7 +53,6 @@ export class Shortcuts {
     const key = event.key.toLowerCase();
     if (key === 'escape') {
       if (this.menu.isOpen) this.menu.close(null);
-      else if (this.viewer.isOpen) drive.closeViewer();
       else if (!this.isTyping(event)) drive.clearSelection();
       return;
     }
@@ -63,7 +61,7 @@ export class Shortcuts {
       this.toolbar.focusSearch();
       return;
     }
-    if (this.isTyping(event) || this.viewer.isOpen) return;
+    if (this.isTyping(event)) return;
 
     const action = command ? this.commandAction(key, event.shiftKey) : this.plainAction(key);
     if (action) {

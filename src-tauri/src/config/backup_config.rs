@@ -9,6 +9,8 @@ use crate::repositories::settings_repository::SettingsRepository;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct BackupConfig {
+    /// The switch in Settings. When it is off, nothing is uploaded, but the other settings and the keys stay.
+    pub enabled: bool,
     pub provider: BackupProvider,
     /// The bucket. For Azure, this is the container. For Google Drive, this is the name of the backup folder.
     pub bucket: String,
@@ -26,6 +28,7 @@ pub struct BackupConfig {
 impl Default for BackupConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             provider: BackupProvider::S3,
             bucket: String::new(),
             account: String::new(),
@@ -50,6 +53,8 @@ impl BackupConfig {
             provider,
             ..Self::default()
         };
+        // The switch is one for all providers.
+        config.enabled = settings.get(AppConstants::BACKUP_ENABLED_KEY).as_deref() != Some("false");
         config.account = Self::clean(settings, AppConstants::AZURE_ACCOUNT_KEY).unwrap_or(config.account);
         config.client_id = Self::clean(settings, AppConstants::GOOGLE_CLIENT_ID_KEY).unwrap_or(config.client_id);
         config.client_secret =
@@ -63,6 +68,10 @@ impl BackupConfig {
     /// Makes these settings the ones the backup uses.
     pub fn save(&self, settings: &SettingsRepository) {
         settings.set(AppConstants::BACKUP_PROVIDER_KEY, self.provider.raw());
+        settings.set(
+            AppConstants::BACKUP_ENABLED_KEY,
+            if self.enabled { "true" } else { "false" },
+        );
         settings.set(&AppConstants::bucket_key(self.provider), &self.bucket);
         settings.set(&AppConstants::prefix_key(self.provider), &self.prefix);
         // Write only what this provider uses, or saving one provider resets a field of another one.
@@ -75,6 +84,11 @@ impl BackupConfig {
             }
             BackupProvider::Gcs => {}
         }
+    }
+
+    /// The backup only works when the switch is on and there is a place to back up to.
+    pub fn is_on(&self) -> bool {
+        self.enabled && !self.bucket.is_empty()
     }
 
     pub fn host(&self) -> String {
