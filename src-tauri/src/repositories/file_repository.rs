@@ -1,5 +1,4 @@
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -126,13 +125,6 @@ impl FileRepository {
         let time = UNIX_EPOCH + Duration::from_millis(u64::try_from(millis).unwrap_or(0));
         fs::File::options().write(true).open(path)?.set_modified(time)?;
         Ok(())
-    }
-
-    /// The first bytes of a file as text, for the preview.
-    pub fn read_head(&self, path: &Path, limit: u64) -> AppResult<String> {
-        let mut bytes = Vec::new();
-        fs::File::open(path)?.take(limit).read_to_end(&mut bytes)?;
-        Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 
     /// Copies a file, or a folder with all that is in it. Runs off the async threads, so a big file blocks nothing.

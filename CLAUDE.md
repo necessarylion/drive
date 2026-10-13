@@ -56,7 +56,6 @@ The code goes in one direction: view → controller → service → repository �
 - **`repositories/`**: all outside access. `FileRepository` (disk), `MetadataRepository` and `BackupStateRepository` (JSON files), `SettingsRepository` (`settings.json`), `KeychainRepository` (the keychain of the system, through the `keyring` crate), `HttpTransport` (all HTTP), and one `BackupRepository` per provider.
 - **`config/` and `constants/`**: `AppConfig` (where data is stored), `BackupConfig` (provider, bucket, region, prefix), `AppConstants` (all keys and limits).
 - **`tray.rs`**: the tray icon and its menu.
-- **`viewer_window.rs`**: opens a file in a window of its own (`ui/viewer.html`, `ui/js/viewer_main.js`). The file to show is given to the page as `window.DRIVE_VIEWED`.
 
 ### Window side (`ui/js/`)
 
@@ -76,7 +75,7 @@ The code goes in one direction: view → controller → service → repository �
 - **Metadata is keyed by full path.** Stars, pins and folder colors are stored by path in `DriveMetadata`. After any move or rename, call `metadata.repath(old, new)`, or the item loses them. Every field has `#[serde(default)]`, so a file from an older version (also from the Swift app) still loads. Do the same for new fields.
 - **Paths must be canonical.** `FileRepository::prepared_folder` returns the real path (`/private/var`, not `/var`). Path checks use `Path::starts_with` on these. Never check paths with string prefixes; that breaks on Windows.
 - **The window sends paths, so the services check them.** `DriveService::require_item_in_drive` stops rename, trash and duplicate for anything outside `Files/`. `trash_slot` is the guard that stops restore and delete from touching anything outside the trash. `drive_open` and `drive_reveal` only take paths inside the storage root. The asset protocol (used to show pictures and PDFs) is only allowed for the storage root; see `AppContainer::install`.
-- **The close button hides the main window.** `AppContainer::keep_alive` stops the close and hides it, so the window comes back as it was (Dock icon or tray). Only "Quit Drive" stops the app. Viewer windows (label `viewer-…`) close for real.
+- **The close button hides the main window.** `AppContainer::keep_alive` stops the close and hides it, so the window comes back as it was (Dock icon or tray). Only "Quit Drive" stops the app.
 - **The trash uses slots.** A trashed item moves to `Trash/<random id>/<name>`. `metadata.trash_origins` maps the slot id to the old path.
 - **The trash empties itself.** `DriveService::empty_old_trash` deletes a slot when the change date of the slot folder is older than `AppConstants::TRASH_KEEP_DAYS` (30). `AppContainer::keep_trash_clean` runs it at the start and then once per hour.
 - **Items are dragged with pointer events.** `ItemDrag` (window side) moves items onto any element with `data-folder` and `data-path`. It does not use HTML drag and drop, because that does not work on Windows while the window takes file drops from the system. Files from outside the app still come in through `Shortcuts.onFileDrop`, and use the same `data-folder` elements.

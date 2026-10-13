@@ -22,9 +22,6 @@ export class Menus {
       case 'open':
         drive.open(paths);
         break;
-      case 'openDefault':
-        await drive.openInDefaultApp(paths[0]);
-        break;
       case 'rename':
         await drive.askRename(paths);
         break;
@@ -157,9 +154,6 @@ export class Menus {
     const areFolders = drive.areFolders(paths);
     const starred = drive.areStarred(paths);
     const entries = [{ command: 'open', label: 'Open', icon: 'open' }];
-    if (paths.length === 1 && !areFolders) {
-      entries.push({ command: 'openDefault', label: 'Open in Default App', icon: 'open' });
-    }
     entries.push({ separator: true });
     entries.push({ command: 'rename', label: 'Rename…', icon: 'pencil', disabled: paths.length !== 1 });
     entries.push({ command: 'duplicate', label: 'Duplicate', icon: 'copy' });
@@ -173,7 +167,10 @@ export class Menus {
     entries.push({ separator: true });
     entries.push({ command: 'download', label: 'Download a Copy…', icon: 'download' });
     entries.push({ command: 'reveal', label: 'Show in File Manager', icon: 'folder' });
-    entries.push({ command: 'info', label: 'Get Info', icon: 'info' });
+    // The details are already on screen when the inspector is open, and in column view.
+    if (!drive.isInspectorShown && !drive.isColumnMode) {
+      entries.push({ command: 'info', label: 'Get Info', icon: 'info' });
+    }
     entries.push({ separator: true });
     entries.push({ command: 'trash', label: 'Move to Trash…', icon: 'trash', danger: true });
     return entries;

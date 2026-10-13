@@ -172,14 +172,6 @@ impl DriveService {
         chain
     }
 
-    /// The first part of a text file, for the preview.
-    pub fn read_text(&self, path: &Path) -> AppResult<String> {
-        if !self.is_in_storage(path) {
-            return Err(AppError::OutsideDrive);
-        }
-        self.files.read_head(path, AppConstants::TEXT_PREVIEW_BYTES)
-    }
-
     // MARK: - Changing
 
     pub fn create_folder(&self, name: &str, folder: &Path, color: FolderColor) -> AppResult<PathBuf> {

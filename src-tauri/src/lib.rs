@@ -11,7 +11,6 @@ pub mod models;
 pub mod repositories;
 pub mod services;
 mod tray;
-mod viewer_window;
 
 use std::error::Error;
 use std::sync::Arc;
@@ -128,7 +127,7 @@ impl AppContainer {
     }
 
     /// The close button only hides the main window. Drive keeps running, and the window comes back as it was.
-    /// "Quit Drive" in the menu or in the tray is what stops the app. A viewer window closes for real.
+    /// "Quit Drive" in the menu or in the tray is what stops the app.
     fn keep_alive(window: &Window, event: &WindowEvent) {
         if window.label() != AppConstants::MAIN_WINDOW {
             return;
@@ -166,7 +165,6 @@ pub fn run() {
             drive_commands::drive_columns,
             drive_commands::drive_overview,
             drive_commands::drive_folder_chain,
-            drive_commands::drive_read_text,
             drive_commands::drive_create_folder,
             drive_commands::drive_create_document,
             drive_commands::drive_add,
@@ -180,7 +178,6 @@ pub fn run() {
             drive_commands::drive_restore,
             drive_commands::drive_delete_forever,
             drive_commands::drive_open,
-            drive_commands::drive_view,
             drive_commands::drive_reveal,
             backup_commands::backup_status,
             backup_commands::backup_auto,

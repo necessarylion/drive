@@ -22,8 +22,6 @@ export class DriveController extends EventTarget {
     this.selection = new Set();
     this.isInspectorShown = true;
     this.isSidebarShown = true;
-    /** The file a viewer window shows. The main window never sets it. */
-    this.viewedItem = null;
 
     this.items = [];
     /** One list per open folder, from the root down. Only filled in column view. */
@@ -198,10 +196,6 @@ export class DriveController extends EventTarget {
     return this.repository.fileUrl(item.path);
   }
 
-  readText(item) {
-    return this.repository.readText(item.path);
-  }
-
   // MARK: - Navigation
 
   navigate(target) {
@@ -342,7 +336,7 @@ export class DriveController extends EventTarget {
 
   // MARK: - Opening
 
-  /** Opens a folder in place, or a file in a viewer window of its own. */
+  /** Opens a folder in place, or a file in the app the system uses for it. */
   async open(paths) {
     if (this.section === 'trash' || paths.length === 0) return;
     const item = this.find(paths[0]);
@@ -350,22 +344,12 @@ export class DriveController extends EventTarget {
     if (item.isFolder) {
       this.showFolder(item.path);
     } else {
-      await this.guard(this.repository.view(item.path));
+      await this.guard(this.repository.open(item.path));
     }
   }
 
   openSelection() {
     this.open([...this.selection]);
-  }
-
-  /** Used by a viewer window: this is the file to show. */
-  view(item) {
-    this.viewedItem = item;
-    this.emit();
-  }
-
-  async openInDefaultApp(path) {
-    await this.guard(this.repository.open(path));
   }
 
   async showInFileManager(paths) {
