@@ -7,6 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use common::TempFolder;
 use drive_lib::config::backup_config::BackupConfig;
+use drive_lib::constants::AppConstants;
 use drive_lib::models::backup::{BackupConnection, BackupProvider, BackupState, Credentials, RemoteObject};
 use drive_lib::models::drive::{DriveMetadata, SyncState};
 use drive_lib::models::error::{AppError, AppResult};
@@ -17,7 +18,8 @@ use drive_lib::repositories::backup_state_repository::BackupStateRepository;
 use drive_lib::repositories::file_repository::FileRepository;
 use drive_lib::repositories::google_auth_repository::GoogleAuthRepository;
 use drive_lib::repositories::google_drive_repository::GoogleDriveRepository;
-use drive_lib::repositories::http_transport::HttpTransport;
+use drive_lib::repositories::http_transport::{HttpReply, HttpTransport};
+use drive_lib::repositories::part_upload::{PartTarget, PartUpload};
 use drive_lib::repositories::s3_repository::S3Repository;
 use drive_lib::repositories::secret_repository::SecretRepository;
 use drive_lib::repositories::settings_repository::SettingsRepository;
@@ -500,4 +502,165 @@ fn reads_the_azure_and_s3_lists() {
     assert_eq!(objects[0].key, "Docs/a & b.txt");
     assert_eq!(objects[0].size, 42);
     assert_eq!(objects[0].last_modified, OCTOBER_2009);
+}
+
+/// Plays the upload server of Google on this computer, until the file is whole. It breaks one time
+/// in the middle of a part, the way a bad network does. Returns the bytes it got.
+async fn fake_google_upload(listener: tokio::net::TcpListener, size: usize) -> Vec<u8> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let mut stored = Vec::new();
+    let mut has_failed = false;
+    loop {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let head_end = loop {
+            if let Some(end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+                break end + 4;
+            }
+            let mut buffer = [0; 8 * 1024];
+            let count = stream.read(&mut buffer).await.unwrap();
+            assert!(count > 0, "the request stopped before its headers were done");
+            request.extend_from_slice(&buffer[..count]);
+        };
+        let head = String::from_utf8_lossy(&request[..head_end]).to_lowercase();
+        let header = |name: &str| {
+            let line = head.lines().find(|line| line.starts_with(name));
+            line.map_or("", |line| line[name.len()..].trim()).to_owned()
+        };
+        let mut body = request[head_end..].to_vec();
+        body.resize(header("content-length:").parse().unwrap(), 0);
+        let already_read = request.len() - head_end;
+        stream.read_exact(&mut body[already_read..]).await.unwrap();
+
+        let range = header("content-range:");
+        let mut status = "308 Resume Incomplete";
+        if !range.starts_with("bytes */") {
+            let start: usize = range["bytes ".len()..].split('-').next().unwrap().parse().unwrap();
+            assert_eq!(start, stored.len(), "a part must start where the last one ended");
+            if has_failed || start == 0 {
+                stored.extend_from_slice(&body);
+            } else {
+                // Keep only half of this part, and say the server broke.
+                has_failed = true;
+                stored.extend_from_slice(&body[..body.len() / 2]);
+                status = "503 Service Unavailable";
+            }
+        }
+        let is_done = stored.len() == size;
+        let (status, answer) = if is_done {
+            ("200 OK", "{\"id\":\"file-1\"}")
+        } else {
+            (status, "")
+        };
+        let have = if stored.is_empty() {
+            String::new()
+        } else {
+            format!("Range: bytes=0-{}\r\n", stored.len() - 1)
+        };
+        let reply = format!(
+            "HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: {}\r\n{have}\r\n{answer}",
+            answer.len()
+        );
+        stream.write_all(reply.as_bytes()).await.unwrap();
+        if is_done {
+            return stored;
+        }
+    }
+}
+
+#[tokio::test]
+async fn sends_a_big_file_to_google_in_parts() {
+    assert_eq!(GoogleDriveRepository::next_offset(None), 0);
+    assert_eq!(GoogleDriveRepository::next_offset(Some("bytes=0-99")), 100);
+
+    // Two and a half parts, so the last part is a short one.
+    let size = usize::try_from(AppConstants::UPLOAD_PART_BYTES).unwrap() * 5 / 2;
+    let mut content = Vec::with_capacity(size);
+    for index in 0..size {
+        content.push(u8::try_from(index % 251).unwrap());
+    }
+    let folder = TempFolder::new();
+    let file = folder.path().join("big.bin");
+    std::fs::write(&file, &content).unwrap();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let location = format!("http://{}/upload", listener.local_addr().unwrap());
+    let server = tokio::spawn(fake_google_upload(listener, size));
+
+    let google = GoogleDriveRepository::new(google_auth(), signer(), Arc::new(HttpTransport::new()));
+    let sent = google.send_in_parts(&location, &file).await.unwrap();
+
+    assert_eq!(sent.id, "file-1");
+    assert!(
+        server.await.unwrap() == content,
+        "Google must get the same bytes, in the same order"
+    );
+}
+
+/// Stands in for S3 or Azure. It keeps the parts in the memory, and the network breaks one time.
+#[derive(Default)]
+struct MemoryParts {
+    parts: Mutex<BTreeMap<u64, Vec<u8>>>,
+    has_failed: Mutex<bool>,
+}
+
+#[async_trait]
+impl PartTarget for MemoryParts {
+    async fn send_part(&self, number: u64, bytes: Vec<u8>) -> AppResult<HttpReply> {
+        if number == 2 && !std::mem::replace(&mut *self.has_failed.lock(), true) {
+            return Err(AppError::Network("The line broke.".to_owned()));
+        }
+        self.parts.lock().insert(number, bytes);
+        Ok(HttpReply {
+            status: 200,
+            location: None,
+            range: None,
+            etag: Some(format!("tag-{number}")),
+            body: Vec::new(),
+        })
+    }
+}
+
+#[tokio::test]
+async fn sends_a_big_file_in_parts() {
+    // Five and a half parts: more parts than workers, and the last part is a short one.
+    let size = AppConstants::UPLOAD_PART_BYTES * 11 / 2;
+    let mut content = Vec::new();
+    for index in 0..size {
+        content.push(u8::try_from(index % 251).unwrap());
+    }
+    let folder = TempFolder::new();
+    let file = folder.path().join("big.bin");
+    std::fs::write(&file, &content).unwrap();
+
+    let target = MemoryParts::default();
+    let tags = PartUpload::run(&target, &file, size).await.unwrap();
+
+    assert_eq!(tags, ["tag-1", "tag-2", "tag-3", "tag-4", "tag-5", "tag-6"]);
+    let joined = target.parts.lock().values().flatten().copied().collect::<Vec<u8>>();
+    assert!(
+        joined == content,
+        "the parts must give the same file when they are joined"
+    );
+
+    // A very big file gets bigger parts, so S3 never sees too many.
+    assert_eq!(PartUpload::part_size(size), AppConstants::UPLOAD_PART_BYTES);
+    let huge = AppConstants::UPLOAD_PART_BYTES * AppConstants::UPLOAD_MAX_PARTS * 3;
+    assert_eq!(PartUpload::part_size(huge), AppConstants::UPLOAD_PART_BYTES * 3);
+    assert!(!PartUpload::is_needed(AppConstants::UPLOAD_PART_BYTES));
+}
+
+#[test]
+fn builds_the_calls_that_join_the_parts() {
+    assert_eq!(
+        S3Repository::complete_body(&["\"a\"".to_owned(), "\"b\"".to_owned()]),
+        "<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>\"a\"</ETag></Part>\
+         <Part><PartNumber>2</PartNumber><ETag>\"b\"</ETag></Part></CompleteMultipartUpload>"
+    );
+    // "00000001" and "00000002" in base64.
+    assert_eq!(
+        AzureRepository::block_list(2),
+        "<BlockList><Latest>MDAwMDAwMDE=</Latest><Latest>MDAwMDAwMDI=</Latest></BlockList>"
+    );
 }

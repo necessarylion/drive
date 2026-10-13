@@ -15,6 +15,17 @@ impl AppConstants {
     /// How often the app looks for old items in the trash while it runs.
     pub const TRASH_CHECK_SECONDS: u64 = 60 * 60;
 
+    /// A big file goes to the backup in parts of this size. Google wants a multiple of 256 KB,
+    /// and S3 wants 5 MB or more.
+    pub const UPLOAD_PART_BYTES: u64 = 8 * 1024 * 1024;
+    /// How long one part may take. A slower network than about 30 KB per second needs a bigger number.
+    pub const UPLOAD_PART_SECONDS: u64 = 300;
+    /// How many times in a row a part may fail before the upload gives up.
+    pub const UPLOAD_PART_TRIES: u64 = 5;
+
+    /// S3 takes no more parts than this for one file.
+    pub const UPLOAD_MAX_PARTS: u64 = 10_000;
+
     pub const APP_FOLDER: &'static str = "Drive";
     pub const SETTINGS_FILE: &'static str = "settings.json";
     pub const STORAGE_ROOT_ENV: &'static str = "DRIVE_STORAGE_ROOT";

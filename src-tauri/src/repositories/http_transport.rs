@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use reqwest::header::{CONTENT_LENGTH, LOCATION};
+use reqwest::header::{CONTENT_LENGTH, ETAG, HeaderName, LOCATION, RANGE};
 use reqwest::{Body, Client, Method, RequestBuilder, Response, Url};
 use tokio::io::AsyncWriteExt;
 
@@ -13,6 +13,10 @@ pub struct HttpReply {
     pub status: u16,
     /// The "Location" header. Google uses it to say where a file must be sent.
     pub location: Option<String>,
+    /// The "Range" header. Google uses it to say how much of a file it has.
+    pub range: Option<String>,
+    /// The `ETag` header. S3 gives one for each part of a big file, and wants them back at the end.
+    pub etag: Option<String>,
     pub body: Vec<u8>,
 }
 
@@ -99,18 +103,29 @@ impl HttpTransport {
         Ok(HttpReply {
             status,
             location: None,
+            range: None,
+            etag: None,
             body: Vec::new(),
         })
     }
 
     async fn reply(response: Response) -> AppResult<HttpReply> {
         let status = response.status().as_u16();
-        let location = response
-            .headers()
-            .get(LOCATION)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
+        let location = Self::header(&response, &LOCATION);
+        let range = Self::header(&response, &RANGE);
+        let etag = Self::header(&response, &ETAG);
         let body = response.bytes().await?.to_vec();
-        Ok(HttpReply { status, location, body })
+        Ok(HttpReply {
+            status,
+            location,
+            range,
+            etag,
+            body,
+        })
+    }
+
+    fn header(response: &Response, name: &HeaderName) -> Option<String> {
+        let value = response.headers().get(name)?;
+        value.to_str().ok().map(str::to_owned)
     }
 }

@@ -1,13 +1,18 @@
 use std::collections::HashMap;
+use std::io::SeekFrom;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use reqwest::RequestBuilder;
+use reqwest::header::{CONTENT_LENGTH, CONTENT_RANGE};
 use serde_json::json;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use crate::config::backup_config::BackupConfig;
+use crate::constants::AppConstants;
 use crate::models::backup::{BackupConnection, RemoteObject};
 use crate::models::error::{AppError, AppResult};
 use crate::models::google::{GoogleFile, GoogleFileList};
@@ -37,6 +42,9 @@ pub struct GoogleDriveRepository {
     signer: Arc<AwsSigner>,
     http: Arc<HttpTransport>,
     index: Mutex<DriveIndex>,
+    /// Held while a folder is looked up or made. Files go up at the same time, and two of them
+    /// must not make the same folder twice.
+    folder_lock: tokio::sync::Mutex<()>,
 }
 
 impl GoogleDriveRepository {
@@ -51,6 +59,7 @@ impl GoogleDriveRepository {
             signer,
             http,
             index: Mutex::new(DriveIndex::default()),
+            folder_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -122,6 +131,7 @@ impl GoogleDriveRepository {
 
     /// The ID of the folder at this path. Makes the folder, and the folders above it, when they are missing.
     async fn folder_id(&self, path: &str, connection: &BackupConnection) -> AppResult<String> {
+        let _lock = self.folder_lock.lock().await;
         // Walk from the backup folder ("") down to the wanted folder, one name at a time.
         let mut current = String::new();
         let mut parent_id = self
@@ -192,6 +202,83 @@ impl GoogleDriveRepository {
         Ok(self.http.request(method, address)?.bearer_auth(token))
     }
 
+    /// Sends the file to the address Google gave, one part after the other. Google joins the parts.
+    /// When a part fails, it asks Google how much it has and goes on from there. So a short break
+    /// in the network does not start a big file from zero.
+    // ponytail: the parts go one by one, because Google does not take the parts of one file side by side.
+    // A backup that is stopped starts the file again. Save `location` if it must go on after a restart.
+    pub async fn send_in_parts(&self, location: &str, file: &Path) -> AppResult<GoogleFile> {
+        let mut handle = tokio::fs::File::open(file).await?;
+        let size = handle.metadata().await?.len();
+        let mut offset = 0;
+        let mut failures = 0;
+        let mut must_ask = false;
+        loop {
+            let length = if must_ask {
+                0
+            } else {
+                (size.saturating_sub(offset)).min(AppConstants::UPLOAD_PART_BYTES)
+            };
+            let mut part = vec![0; usize::try_from(length).expect("a part fits in the memory")];
+            handle.seek(SeekFrom::Start(offset)).await?;
+            handle.read_exact(&mut part).await?;
+            let mut request = self
+                .http
+                .request("PUT", location)?
+                .timeout(Duration::from_secs(AppConstants::UPLOAD_PART_SECONDS))
+                // Google wants the length also when there are no bytes.
+                .header(CONTENT_LENGTH, length)
+                .body(part);
+            if length > 0 {
+                let range = format!("bytes {offset}-{}/{size}", offset + length - 1);
+                request = request.header(CONTENT_RANGE, range);
+            } else if size > 0 {
+                // No bytes and a "*" asks Google how much of the file it has.
+                request = request.header(CONTENT_RANGE, format!("bytes */{size}"));
+            }
+
+            let reply = match self.http.send(request).await {
+                Ok(reply) if reply.status < 500 => reply,
+                failed => {
+                    failures += 1;
+                    if failures >= AppConstants::UPLOAD_PART_TRIES {
+                        // Give the reason of the last try: the network error, or what the server said.
+                        failed?.check_json()?;
+                    }
+                    tokio::time::sleep(Duration::from_secs(failures)).await;
+                    must_ask = true;
+                    continue;
+                }
+            };
+            must_ask = false;
+            // 308 means "I have this much, send the rest".
+            if reply.status != 308 {
+                reply.check_json()?;
+                return Self::file_in(&reply.body);
+            }
+            let next = Self::next_offset(reply.range.as_deref());
+            if next > offset {
+                failures = 0;
+            } else {
+                failures += 1;
+                if failures >= AppConstants::UPLOAD_PART_TRIES {
+                    return Err(AppError::RequestFailed(
+                        308,
+                        "Google does not take the file.".to_owned(),
+                    ));
+                }
+            }
+            offset = next;
+        }
+    }
+
+    /// Where the next part starts. Google answers "bytes=0-99" when it has the first 100 bytes,
+    /// and sends no range when it has nothing.
+    pub fn next_offset(range: Option<&str>) -> u64 {
+        let last = range.and_then(|range| range.rsplit_once('-')?.1.trim().parse::<u64>().ok());
+        last.map_or(0, |last| last + 1)
+    }
+
     fn with_json(request: RequestBuilder, body: &serde_json::Value) -> RequestBuilder {
         request.header("Content-Type", Self::JSON_TYPE).body(body.to_string())
     }
@@ -234,7 +321,6 @@ impl BackupRepository for GoogleDriveRepository {
         Ok(objects)
     }
 
-    // ponytail: the whole file goes up in one request. Send it in parts if uploads of big files often break.
     async fn upload(&self, file: &Path, key: &str, connection: &BackupConnection) -> AppResult<()> {
         self.prepare(connection).await?;
         // Step 1: tell Google what is coming. It answers with the address to send the file to.
@@ -259,9 +345,7 @@ impl BackupRepository for GoogleDriveRepository {
         };
 
         // Step 2: send the file.
-        let sent = self.http.upload(self.http.request("PUT", &location)?, file).await?;
-        sent.check_json()?;
-        let id = Self::file_in(&sent.body)?.id;
+        let id = self.send_in_parts(&location, file).await?.id;
         self.index.lock().file_ids.insert(key.to_owned(), id);
         Ok(())
     }

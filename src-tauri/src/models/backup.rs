@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -112,7 +112,8 @@ pub struct BackupProgress {
     pub text: String,
     pub uploads_done: usize,
     pub uploads_total: usize,
-    pub uploading_path: String,
+    /// The files that are on their way now. Some files go up at the same time.
+    pub uploading_paths: BTreeSet<String>,
 }
 
 impl BackupProgress {

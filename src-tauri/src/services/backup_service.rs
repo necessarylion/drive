@@ -1,6 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use parking_lot::Mutex;
 
@@ -88,7 +89,7 @@ impl BackupService {
     // by hand shows as synced until the next check.
     pub fn state_of(&self, path: &Path, modified: i64) -> SyncState {
         let key = DriveMetadata::key(path);
-        if self.progress.lock().uploading_path == key {
+        if self.progress.lock().uploading_paths.contains(&key) {
             return SyncState::Uploading;
         }
         match self.state.lock().synced_dates.get(&key) {
@@ -170,30 +171,52 @@ impl BackupService {
         let _guard = StepGuard { service: self };
         let remote = self.repository(&plan.connection.config);
         let total = plan.uploads.len();
-        for (index, upload) in plan.uploads.iter().enumerate() {
-            let path_key = DriveMetadata::key(&upload.file);
+        if total > 0 {
             {
                 let mut progress = self.progress.lock();
-                progress.text = format!("Uploading {} of {total}", index + 1);
-                progress.uploads_done = index;
+                progress.text = format!("Uploading 1 of {total}");
                 progress.uploads_total = total;
-                progress.uploading_path.clone_from(&path_key);
             }
-            self.observer.backup_changed();
-            remote.upload(&upload.file, &upload.key, &plan.connection).await?;
-            // The settings can change while a backup runs. Then this upload went to the old place.
-            let mut state = self.state.lock();
-            if plan.connection.config.destination() == state.destination {
-                state.synced_dates.insert(path_key, upload.modified);
-            }
+            let next = AtomicUsize::new(0);
+            // ponytail: four files at the same time, written out. Make it a list of workers
+            // if the number must come from a setting.
+            tokio::try_join!(
+                self.upload_files(plan, &next),
+                self.upload_files(plan, &next),
+                self.upload_files(plan, &next),
+                self.upload_files(plan, &next),
+            )?;
         }
-        self.progress.lock().uploading_path.clear();
         if !remove_extras {
             return Ok(());
         }
         for (index, key) in plan.extra_keys.iter().enumerate() {
             self.set_progress(&format!("Removing {} of {}", index + 1, plan.extra_keys.len()));
             remote.delete(key, &plan.connection).await?;
+        }
+        Ok(())
+    }
+
+    /// Takes the next file of the plan that no worker took yet and uploads it, until no file is left.
+    async fn upload_files(&self, plan: &BackupPlan, next: &AtomicUsize) -> AppResult<()> {
+        let remote = self.repository(&plan.connection.config);
+        let total = plan.uploads.len();
+        while let Some(upload) = plan.uploads.get(next.fetch_add(1, Ordering::Relaxed)) {
+            let path_key = DriveMetadata::key(&upload.file);
+            self.progress.lock().uploading_paths.insert(path_key.clone());
+            self.observer.backup_changed();
+            remote.upload(&upload.file, &upload.key, &plan.connection).await?;
+            {
+                let mut progress = self.progress.lock();
+                progress.uploading_paths.remove(&path_key);
+                progress.uploads_done += 1;
+                progress.text = format!("Uploading {} of {total}", (progress.uploads_done + 1).min(total));
+            }
+            // The settings can change while a backup runs. Then this upload went to the old place.
+            let mut state = self.state.lock();
+            if plan.connection.config.destination() == state.destination {
+                state.synced_dates.insert(path_key, upload.modified);
+            }
         }
         Ok(())
     }

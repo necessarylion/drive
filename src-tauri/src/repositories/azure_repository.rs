@@ -1,17 +1,42 @@
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use reqwest::RequestBuilder;
 
+use crate::constants::AppConstants;
 use crate::models::backup::{BackupConnection, RemoteObject};
 use crate::models::error::{AppError, AppResult};
 use crate::repositories::backup_repository::BackupRepository;
 use crate::repositories::date_reader::DateReader;
-use crate::repositories::http_transport::HttpTransport;
+use crate::repositories::http_transport::{HttpReply, HttpTransport};
+use crate::repositories::part_upload::{PartTarget, PartUpload};
 use crate::repositories::xml_reader::XmlReader;
 use crate::services::aws_signer::AwsSigner;
+
+/// One big file on its way to Azure, in parts. Azure calls a part a "block".
+struct AzureBlocks<'a> {
+    repository: &'a AzureRepository,
+    key: &'a str,
+    connection: &'a BackupConnection,
+}
+
+#[async_trait]
+impl PartTarget for AzureBlocks<'_> {
+    async fn send_part(&self, number: u64, bytes: Vec<u8>) -> AppResult<HttpReply> {
+        let mut query = BTreeMap::new();
+        query.insert("comp", "block".to_owned());
+        query.insert("blockid", AzureRepository::block_id(number));
+        let request = self.repository.request("PUT", self.key, &query, self.connection)?;
+        let limit = Duration::from_secs(AppConstants::UPLOAD_PART_SECONDS);
+        self.repository.http.send(request.timeout(limit).body(bytes)).await
+    }
+}
 
 /// All network calls to Azure Blob Storage.
 // ponytail: it signs in with a SAS token, and that token has an end date.
@@ -61,6 +86,42 @@ impl AzureRepository {
                 Some(marker.to_owned())
             },
         ))
+    }
+
+    /// The name of a block. Azure wants base64, and the same length for every block of a file.
+    pub fn block_id(number: u64) -> String {
+        STANDARD.encode(format!("{number:08}"))
+    }
+
+    /// The body of the call that joins the blocks into one file.
+    pub fn block_list(count: u64) -> String {
+        let mut body = String::from("<BlockList>");
+        for number in 1..=count {
+            let _ = write!(body, "<Latest>{}</Latest>", Self::block_id(number));
+        }
+        body + "</BlockList>"
+    }
+
+    /// Sends a big file in blocks, and tells Azure to join them.
+    /// Azure removes the blocks of a file that was never joined by itself, after one week.
+    async fn upload_in_blocks(
+        &self,
+        file: &Path,
+        size: u64,
+        key: &str,
+        connection: &BackupConnection,
+    ) -> AppResult<()> {
+        let blocks = AzureBlocks {
+            repository: self,
+            key,
+            connection,
+        };
+        let count = PartUpload::run(&blocks, file, size).await?.len();
+        let mut query = BTreeMap::new();
+        query.insert("comp", "blocklist".to_owned());
+        let request = self.request("PUT", key, &query, connection)?;
+        let body = Self::block_list(count as u64);
+        self.http.send(request.body(body)).await?.check_xml()
     }
 
     /// The address of a request. The SAS token goes at the end. It is the sign-in, so no header is signed.
@@ -115,8 +176,11 @@ impl BackupRepository for AzureRepository {
         }
     }
 
-    // ponytail: one PUT per file, so about 5 GB is the biggest file. Upload in blocks if you need more.
     async fn upload(&self, file: &Path, key: &str, connection: &BackupConnection) -> AppResult<()> {
+        let size = tokio::fs::metadata(file).await?.len();
+        if PartUpload::is_needed(size) {
+            return self.upload_in_blocks(file, size, key, connection).await;
+        }
         let request = self.request("PUT", key, &BTreeMap::new(), connection)?;
         self.http
             .upload(request.header("x-ms-blob-type", "BlockBlob"), file)
