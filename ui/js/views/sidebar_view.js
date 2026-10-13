@@ -54,7 +54,13 @@ export class SidebarView extends View {
       {
         type: 'button',
         class: `sidebar-row${isPicked ? ' is-picked' : ''}`,
-        data: { action: 'section', section: section.id },
+        // Items dropped on "My Drive" go to the top folder.
+        data: {
+          action: 'section',
+          section: section.id,
+          folder: section.id === 'myDrive' ? '1' : null,
+          path: section.id === 'myDrive' ? drive.overview.root : null,
+        },
       },
       [icon, Dom.el('span', { text: section.title })],
     );
@@ -68,7 +74,7 @@ export class SidebarView extends View {
         type: 'button',
         class: `sidebar-row${isPicked ? ' is-picked' : ''}`,
         title: folder.name,
-        data: { action: 'pinned', path: folder.path },
+        data: { action: 'pinned', path: folder.path, folder: '1' },
       },
       [
         Dom.el('span', { class: `pin-dot bg-${folder.color}` }),

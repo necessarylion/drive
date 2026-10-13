@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use chrono::Utc;
+
 use crate::config::backup_config::BackupConfig;
 use crate::constants::AppConstants;
 use crate::models::drive::{DriveItem, DriveSection, FolderColor, FolderRef, ItemSorter, ItemView, Overview};
@@ -118,6 +120,11 @@ impl DriveController {
 
     pub fn delete_forever(&self, paths: &[PathBuf]) -> AppResult<()> {
         self.service.delete_forever(paths)
+    }
+
+    /// Deletes what has been in the trash for too long.
+    pub fn empty_old_trash(&self) -> usize {
+        self.service.empty_old_trash(Utc::now().timestamp_millis())
     }
 
     // MARK: - Helpers

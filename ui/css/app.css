@@ -1533,3 +1533,28 @@ button:disabled {
   width: 15px;
   height: 15px;
 }
+
+/* ---------- Dragging items onto a folder ---------- */
+
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 50;
+  max-width: 220px;
+  padding: 5px 10px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.is-dragging .is-drop-target {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 2px var(--accent);
+  color: var(--text);
+}

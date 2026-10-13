@@ -3,3 +3,4 @@
 pub mod backup_commands;
 pub mod drive_commands;
 pub mod settings_commands;
+pub mod update_commands;

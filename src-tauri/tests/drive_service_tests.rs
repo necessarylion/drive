@@ -106,6 +106,30 @@ async fn full_life_of_a_file() {
 }
 
 #[test]
+fn old_items_leave_the_trash_by_themselves() {
+    const DAY: i64 = 24 * 60 * 60 * 1000;
+    let fixture = Fixture::new();
+    let service = &fixture.service;
+    let root = fixture.root();
+    let note = root.join("note.txt");
+    std::fs::write(&note, "hello").unwrap();
+    service.trash(&[note]).unwrap();
+    let trashed_at = service.items(DriveSection::Trash, &root, "", ItemSorter::BY_NAME)[0].modified;
+
+    // After 29 days it is still there. After 31 days it is gone, and so is its "put back" place.
+    assert_eq!(service.empty_old_trash(trashed_at + 29 * DAY), 0);
+    assert_eq!(fixture.names(DriveSection::Trash, &root), ["note.txt"]);
+    assert_eq!(service.empty_old_trash(trashed_at + 31 * DAY), 1);
+    assert_eq!(fixture.names(DriveSection::Trash, &root).len(), 0);
+    let saved = std::fs::read_to_string(fixture.temp.path().join("metadata.json")).unwrap();
+    assert!(saved.contains(r#""trashOrigins":{}"#), "{saved}");
+    // Files in the drive are never touched, however old they are.
+    std::fs::write(root.join("keep.txt"), "hello").unwrap();
+    assert_eq!(service.empty_old_trash(trashed_at + 1000 * DAY), 0);
+    assert_eq!(fixture.names(DriveSection::MyDrive, &root), ["keep.txt"]);
+}
+
+#[test]
 fn folders_keep_pin_and_color_after_rename() {
     let fixture = Fixture::new();
     let service = &fixture.service;

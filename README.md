@@ -23,12 +23,13 @@ Drive is written in Rust with [Tauri 2](https://tauri.app). The window is plain 
 - **Three views:** list, grid with picture previews, and columns.
 - **Folders:** make folders, give them a color, and pin them to the sidebar.
 - **Add files:** use the New button, or drag files and folders in from the file manager.
-- **Organize:** rename, duplicate, move and star items.
+- **Organize:** rename, duplicate, move and star items. Drag an item onto a folder to move it there.
 - **Find:** press ⌘F (Mac) or Ctrl+F to search by name, sort by name, date or size, and see recent files.
-- **Trash:** put items back, or delete them forever. Drive asks before it deletes.
+- **Trash:** put items back, or delete them forever. Drive asks before it deletes. An item that is in the trash for 30 days is deleted by Drive itself.
 - **Details pane:** preview, type, size, dates and backup state of the selected item.
 - **Viewer:** open a picture, video, sound, text file or PDF in the app. Press Space or Enter on a selected file.
 - **Tray icon:** start a backup, pause it, or open your files without the window.
+- **Updates:** Drive tells you when a new version is out. One click installs it and starts Drive again.
 - **Cloud backup:** AWS S3, Google Cloud Storage, Azure Blob Storage or Google Drive. New and changed files upload by themselves. You can restore them on another computer.
 
 ## Download
@@ -36,7 +37,10 @@ Drive is written in Rust with [Tauri 2](https://tauri.app). The window is plain 
 **[Download the latest release](https://github.com/necessarylion/drive/releases/latest)**
 
 Or install it with one line. The line finds the right file for your system and chip by itself.
-Run the same line again to update.
+
+Drive updates itself after that. It looks for a new version when it starts, and every 6 hours while it runs.
+It asks you before it installs one. On Linux, a `.deb` or `.rpm` install asks for your password then.
+Version 0.0.6 and older cannot update themselves. Run the install line one more time for them.
 
 **macOS and Linux**, in the Terminal:
 
@@ -137,6 +141,12 @@ You can also make the release and the tag on the GitHub website. The installers 
 
 The tag must be three plain numbers, like `v1.2.0`.
 
+A release build also signs the files that the app updates itself from, and adds `latest.json` to the release.
+For this, the repository needs the secret `TAURI_SIGNING_PRIVATE_KEY`. It is the private key that fits the
+public key in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`). The key has no password.
+Keep a copy of the private key in a safe place. Without it, installed apps cannot take a new version any more.
+To make a new pair, run `bun tauri signer generate -w ~/.tauri/drive-updater.key`.
+
 On a pull request the workflow only checks the code (format, lint, tests). It does not build the installers.
 To try the builds without a release, start the workflow by hand on the Actions page.
 
@@ -153,7 +163,7 @@ By default, Drive keeps everything in one folder:
 | Path                | What is in it                                       |
 | ------------------- | --------------------------------------------------- |
 | `Files/`            | Your files and folders, as normal files on disk     |
-| `Trash/`            | Items you moved to the trash                        |
+| `Trash/`            | Items you moved to the trash, for 30 days           |
 | `metadata.json`     | Stars, pinned folders, folder colors, trash origins |
 | `backup-state.json` | Which files are known to be in the backup           |
 
