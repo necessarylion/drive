@@ -50,7 +50,7 @@ export class Menus {
         drive.showInfo(paths);
         break;
       case 'trash':
-        await drive.trash(paths);
+        await drive.askTrash(paths);
         break;
       case 'restore':
         await drive.restore(paths);
@@ -175,7 +175,7 @@ export class Menus {
     entries.push({ command: 'reveal', label: 'Show in File Manager', icon: 'folder' });
     entries.push({ command: 'info', label: 'Get Info', icon: 'info' });
     entries.push({ separator: true });
-    entries.push({ command: 'trash', label: 'Move to Trash', icon: 'trash', danger: true });
+    entries.push({ command: 'trash', label: 'Move to Trash…', icon: 'trash', danger: true });
     return entries;
   }
 

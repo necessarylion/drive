@@ -478,15 +478,25 @@ export class DriveController extends EventTarget {
     await this.didChange();
   }
 
-  async trash(paths) {
+  async askTrash(paths) {
     if (paths.length === 0) return;
+    const count = paths.length === 1 ? '1 item' : `${paths.length} items`;
+    const answer = await this.dialogs.choose({
+      title: `Move ${count} to the trash?`,
+      message: `You can put it back from the trash for ${AppConstants.TRASH_KEEP_DAYS} days.`,
+      buttons: [
+        { id: 'cancel', label: 'Cancel' },
+        { id: 'trash', label: 'Move to Trash', kind: 'danger' },
+      ],
+    });
+    if (answer !== 'trash') return;
     await this.guard(this.repository.trash(paths));
     await this.didChange();
   }
 
   trashSelection() {
     const paths = [...this.selection];
-    return this.section === 'trash' ? this.askDeleteForever(paths) : this.trash(paths);
+    return this.section === 'trash' ? this.askDeleteForever(paths) : this.askTrash(paths);
   }
 
   async restore(paths) {
