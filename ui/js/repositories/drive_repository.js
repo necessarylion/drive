@@ -20,10 +20,6 @@ export class DriveRepository {
     return this.gateway.invoke('drive_folder_chain', { folder });
   }
 
-  readText(path) {
-    return this.gateway.invoke('drive_read_text', { path });
-  }
-
   createFolder(name, folder, color) {
     return this.gateway.invoke('drive_create_folder', { name, folder, color });
   }
@@ -70,10 +66,6 @@ export class DriveRepository {
 
   deleteForever(paths) {
     return this.gateway.invoke('drive_delete_forever', { paths });
-  }
-
-  view(path) {
-    return this.gateway.invoke('drive_view', { path });
   }
 
   open(path) {

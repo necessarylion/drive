@@ -169,7 +169,6 @@ async fn duplicates_exports_and_counts_files() {
     let slices = service.storage_slices();
     assert_eq!(slices.len(), 1);
     assert_eq!(slices[0].group, StorageGroup::Documents);
-    assert_eq!(service.read_text(&note).unwrap(), "hello");
 
     let outside = fixture.temp.path().join("Exported");
     std::fs::create_dir_all(&outside).unwrap();

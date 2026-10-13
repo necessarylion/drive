@@ -60,10 +60,6 @@ impl DriveController {
         self.service.folder_chain(folder)
     }
 
-    pub fn read_text(&self, path: &Path) -> AppResult<String> {
-        self.service.read_text(path)
-    }
-
     pub fn root_folder(&self) -> &Path {
         self.service.root_folder()
     }

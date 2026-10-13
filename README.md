@@ -27,7 +27,7 @@ Drive is written in Rust with [Tauri 2](https://tauri.app). The window is plain 
 - **Find:** press ⌘F (Mac) or Ctrl+F to search by name, sort by name, date or size, and see recent files.
 - **Trash:** put items back, or delete them forever. Drive asks before it deletes. An item that is in the trash for 30 days is deleted by Drive itself.
 - **Details pane:** preview, type, size, dates and backup state of the selected item.
-- **Viewer:** open a picture, video, sound, text file or PDF in the app. Press Space or Enter on a selected file.
+- **Open:** a file opens in the app your system uses for it. Double-click it, or press Space or Enter on a selected file.
 - **Tray icon:** start a backup, pause it, or open your files without the window.
 - **Updates:** Drive tells you when a new version is out. One click installs it and starts Drive again.
 - **Cloud backup:** AWS S3, Google Cloud Storage, Azure Blob Storage or Google Drive. New and changed files upload by themselves. You can restore them on another computer.
@@ -281,7 +281,6 @@ Replace `my-drive-backup` with the name of your bucket.
 - Drive is a backup tool, not a sync tool. It does not merge changes from two computers.
 - On Google Drive, a removed file goes to the trash of Google Drive. Google deletes it after 30 days.
 - Turn on versioning for your bucket if you want to undo a removed or replaced file.
-- On Linux, the viewer cannot show a PDF. Open it in another app from there.
 
 ## Project layout
 
