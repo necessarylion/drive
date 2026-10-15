@@ -1,17 +1,42 @@
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use reqwest::RequestBuilder;
+use reqwest::header::CONTENT_LENGTH;
 
+use crate::constants::AppConstants;
 use crate::models::backup::{BackupConnection, RemoteObject};
 use crate::models::error::{AppError, AppResult};
 use crate::repositories::backup_repository::BackupRepository;
 use crate::repositories::date_reader::DateReader;
-use crate::repositories::http_transport::HttpTransport;
+use crate::repositories::http_transport::{HttpReply, HttpTransport};
+use crate::repositories::part_upload::{PartTarget, PartUpload};
 use crate::repositories::xml_reader::XmlReader;
 use crate::services::aws_signer::{AwsSigner, SigningRequest};
+
+/// One big file on its way to S3, in parts.
+struct S3Parts<'a> {
+    repository: &'a S3Repository,
+    key: &'a str,
+    upload_id: &'a str,
+    connection: &'a BackupConnection,
+}
+
+#[async_trait]
+impl PartTarget for S3Parts<'_> {
+    async fn send_part(&self, number: u64, bytes: Vec<u8>) -> AppResult<HttpReply> {
+        let mut query = BTreeMap::new();
+        query.insert("partNumber", number.to_string());
+        query.insert("uploadId", self.upload_id.to_owned());
+        let request = self.repository.request("PUT", self.key, &query, self.connection)?;
+        let limit = Duration::from_secs(AppConstants::UPLOAD_PART_SECONDS);
+        self.repository.http.send(request.timeout(limit).body(bytes)).await
+    }
+}
 
 /// All network calls to S3. Google Cloud Storage speaks the same language, so it is used for that too.
 pub struct S3Repository {
@@ -40,6 +65,79 @@ impl S3Repository {
         }
         let token = XmlReader::text(root, "NextContinuationToken");
         Ok((objects, if token.is_empty() { None } else { Some(token.to_owned()) }))
+    }
+
+    /// The body of the call that joins the parts. S3 wants the tag of each part back.
+    pub fn complete_body(tags: &[String]) -> String {
+        let mut body = String::from("<CompleteMultipartUpload>");
+        for (index, tag) in tags.iter().enumerate() {
+            let number = index + 1;
+            let _ = write!(body, "<Part><PartNumber>{number}</PartNumber><ETag>{tag}</ETag></Part>");
+        }
+        body + "</CompleteMultipartUpload>"
+    }
+
+    /// The text of one tag at the top of an XML answer, or "".
+    fn top_text(body: &[u8], name: &str) -> String {
+        let text = String::from_utf8_lossy(body);
+        match roxmltree::Document::parse(&text) {
+            Ok(document) => XmlReader::text(document.root_element(), name).to_owned(),
+            Err(_) => String::new(),
+        }
+    }
+
+    /// Sends a big file in parts, and tells S3 to join them (a "multipart upload").
+    // ponytail: when the backup is stopped in the middle, the parts stay in the bucket, hidden, and cost
+    // money. Add a lifecycle rule to the bucket that removes unfinished multipart uploads after some days.
+    async fn upload_in_parts(&self, file: &Path, size: u64, key: &str, connection: &BackupConnection) -> AppResult<()> {
+        let mut query = BTreeMap::new();
+        query.insert("uploads", String::new());
+        let start = self.request("POST", key, &query, connection)?;
+        let reply = self.http.send(start.header(CONTENT_LENGTH, 0)).await?;
+        reply.check_xml()?;
+        let upload_id = Self::top_text(&reply.body, "UploadId");
+        if upload_id.is_empty() {
+            return Err(AppError::RequestFailed(0, "The server gave no upload ID.".to_owned()));
+        }
+
+        let mut query = BTreeMap::new();
+        query.insert("uploadId", upload_id.clone());
+        let parts = S3Parts {
+            repository: self,
+            key,
+            upload_id: &upload_id,
+            connection,
+        };
+        let done = match PartUpload::run(&parts, file, size).await {
+            Ok(tags) => self.complete(&tags, key, &query, connection).await,
+            Err(error) => Err(error),
+        };
+        if done.is_err() {
+            // Tell S3 to drop the parts it has. If this fails too, the first error is the one to show.
+            if let Ok(abort) = self.request("DELETE", key, &query, connection) {
+                let _ = self.http.send(abort).await;
+            }
+        }
+        done
+    }
+
+    async fn complete(
+        &self,
+        tags: &[String],
+        key: &str,
+        query: &BTreeMap<&str, String>,
+        connection: &BackupConnection,
+    ) -> AppResult<()> {
+        let request = self.request("POST", key, query, connection)?;
+        let reply = self.http.send(request.body(Self::complete_body(tags))).await?;
+        reply.check_xml()?;
+        // S3 can say OK first and still fail. Then the answer holds an error in place of the result.
+        let code = Self::top_text(&reply.body, "Code");
+        if code.is_empty() {
+            return Ok(());
+        }
+        let message = Self::top_text(&reply.body, "Message");
+        Err(AppError::RequestFailed(reply.status, format!("{code}. {message}")))
     }
 
     fn request(
@@ -120,8 +218,11 @@ impl BackupRepository for S3Repository {
         }
     }
 
-    // ponytail: one PUT per file, so 5 GB is the biggest file. Use multipart upload if you need more.
     async fn upload(&self, file: &Path, key: &str, connection: &BackupConnection) -> AppResult<()> {
+        let size = tokio::fs::metadata(file).await?.len();
+        if PartUpload::is_needed(size) {
+            return self.upload_in_parts(file, size, key, connection).await;
+        }
         let request = self.request("PUT", key, &BTreeMap::new(), connection)?;
         self.http.upload(request, file).await?.check_xml()
     }
