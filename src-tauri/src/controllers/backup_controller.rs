@@ -5,7 +5,7 @@ use tokio::sync::Notify;
 
 use crate::config::backup_config::BackupConfig;
 use crate::constants::AppConstants;
-use crate::models::backup::{BackupPlan, BackupProvider, BackupStatus};
+use crate::models::backup::{BackupProvider, BackupStatus};
 use crate::models::error::{AppError, AppResult};
 use crate::repositories::google_auth_repository::GoogleSignIn;
 use crate::repositories::settings_repository::SettingsRepository;
@@ -15,8 +15,6 @@ use crate::services::backup_service::{BackupObserver, BackupService};
 struct RunState {
     is_running: bool,
     last_result: String,
-    /// A plan that waits for the user to say what happens with the extra files in the backup.
-    pending_plan: Option<BackupPlan>,
     /// True when files changed while a backup was running.
     needs_another_run: bool,
 }
@@ -95,7 +93,8 @@ impl BackupController {
         }
     }
 
-    /// Uploads new and changed files without asking. It never removes anything from the backup.
+    /// Syncs both ways without asking. A file deleted on one side is removed on the other side
+    /// (into the trash, on this computer). Runs after each change here, and every few minutes.
     // ponytail: each run lists the whole backup folder. Fine for a personal drive; keep a local index if it gets slow.
     pub fn auto_back_up(self: &Arc<Self>) {
         if !self.config().is_on() || self.is_paused() {
@@ -116,32 +115,14 @@ impl BackupController {
         self.observer.backup_changed();
     }
 
-    /// The manual backup. Returns how many files are only in the backup. When that is not 0, nothing was
-    /// uploaded yet: removing from the backup cannot be undone, so the user decides, and then
-    /// `finish_backup` does the work.
-    pub async fn back_up(&self) -> AppResult<usize> {
+    /// The manual sync. Unlike the automatic one, it shows the error when it fails.
+    pub async fn back_up(&self) -> AppResult<()> {
         let _guard = self.begin().ok_or(AppError::Busy)?;
-        let planned = self.cancellable(self.service.plan(&self.config())).await;
-        let Some(plan) = self.settle(planned)? else {
-            return Ok(0);
-        };
-        if plan.extra_keys.is_empty() {
-            self.finish(&plan, false).await?;
-            return Ok(0);
+        let synced = self.cancellable(self.plan_and_run()).await;
+        if self.settle(synced)?.is_some() {
+            self.run.lock().last_result = Self::UP_TO_DATE.to_owned();
         }
-        let extras = plan.extra_keys.len();
-        self.run.lock().pending_plan = Some(plan);
-        Ok(extras)
-    }
-
-    /// Runs the plan that `back_up` made.
-    pub async fn finish_backup(&self, remove_extras: bool) -> AppResult<()> {
-        let _guard = self.begin().ok_or(AppError::Busy)?;
-        let plan = self.run.lock().pending_plan.clone();
-        match plan {
-            Some(plan) => self.finish(&plan, remove_extras).await,
-            None => Ok(()),
-        }
+        Ok(())
     }
 
     /// Returns how many files were downloaded.
@@ -164,12 +145,7 @@ impl BackupController {
             // The user turned the backup off. Stop the one that runs now.
             self.cancel.notify_waiters();
         }
-        {
-            let mut run = self.run.lock();
-            // A plan that waits for an answer was made for the old place.
-            run.pending_plan = None;
-            run.last_result.clear();
-        }
+        self.run.lock().last_result.clear();
         self.observer.backup_changed();
         self.auto_back_up();
     }
@@ -235,17 +211,7 @@ impl BackupController {
 
     async fn plan_and_run(&self) -> AppResult<()> {
         let plan = self.service.plan(&self.config()).await?;
-        self.service.run(&plan, false).await
-    }
-
-    async fn finish(&self, plan: &BackupPlan, remove_extras: bool) -> AppResult<()> {
-        let ran = self.cancellable(self.service.run(plan, remove_extras)).await;
-        if self.settle(ran)?.is_some() {
-            let mut run = self.run.lock();
-            run.pending_plan = None;
-            run.last_result = Self::UP_TO_DATE.to_owned();
-        }
-        Ok(())
+        self.service.run(&plan).await
     }
 
     /// Marks the backup as running. `None` when it runs already.

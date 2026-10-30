@@ -32,7 +32,7 @@ export class BackupController extends EventTarget {
     this.dispatchEvent(new Event(AppConstants.UPDATE_EVENT));
   }
 
-  /** Uploads new and changed files without asking. It never removes anything from the backup. */
+  /** Syncs both ways without asking. A file deleted on one side is removed on the other side too. */
   autoBackUp() {
     return this.repository.auto();
   }
@@ -41,24 +41,10 @@ export class BackupController extends EventTarget {
     return this.repository.togglePause();
   }
 
-  /** The manual backup. It also asks what to do with files that are only in the backup. */
+  /** The manual sync. It shows the error when it fails. */
   async backUp() {
     try {
-      const extras = await this.repository.backUp();
-      if (extras === 0) return;
-      // Removing from the backup cannot be undone, so the user decides.
-      const answer = await this.dialogs.choose({
-        title: `${extras} file(s) in the backup are not on this computer`,
-        message:
-          'This happens when you deleted or renamed files here, or when this computer has not restored yet. ' +
-          'Removing from the backup cannot be undone.',
-        buttons: [
-          { id: 'cancel', label: 'Cancel' },
-          { id: 'remove', label: 'Remove Them from the Backup', kind: 'danger' },
-          { id: 'keep', label: 'Keep Them in the Backup', kind: 'primary' },
-        ],
-      });
-      if (answer !== 'cancel') await this.repository.finish(answer === 'remove');
+      await this.repository.backUp();
     } catch (error) {
       this.fail(error);
     }

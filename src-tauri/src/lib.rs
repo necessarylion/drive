@@ -83,7 +83,7 @@ impl AppContainer {
             google: Arc::new(GoogleDriveRepository::new(google_auth.clone(), signer, http)),
         };
         let backup_service = Arc::new(BackupService::new(
-            drive_service.root_folder().to_path_buf(),
+            drive_service.clone(),
             files.clone(),
             repositories,
             google_auth,
@@ -103,11 +103,9 @@ impl AppContainer {
         ));
         app.manage(drive.clone());
         tauri::async_runtime::spawn(Self::keep_trash_clean(drive));
-        app.manage(Arc::new(BackupController::new(
-            backup_service,
-            settings.clone(),
-            observer,
-        )));
+        let backup = Arc::new(BackupController::new(backup_service, settings.clone(), observer));
+        app.manage(backup.clone());
+        tauri::async_runtime::spawn(Self::keep_in_sync(backup));
         app.manage(Arc::new(SettingsController::new(settings, default_root)));
         app.manage(Arc::new(UpdateController::new(app.handle().clone())));
         AppMenu::install(app)?;
@@ -123,6 +121,15 @@ impl AppContainer {
             // The first tick comes at once.
             timer.tick().await;
             drive.empty_old_trash();
+        }
+    }
+
+    /// Syncs with the backup again and again, so changes made on another computer come here too.
+    /// The window starts the first sync itself.
+    async fn keep_in_sync(backup: Arc<BackupController>) {
+        loop {
+            tokio::time::sleep(Duration::from_secs(AppConstants::SYNC_CHECK_SECONDS)).await;
+            backup.auto_back_up();
         }
     }
 
@@ -183,7 +190,6 @@ pub fn run() {
             backup_commands::backup_auto,
             backup_commands::backup_toggle_pause,
             backup_commands::backup_now,
-            backup_commands::backup_finish,
             backup_commands::backup_restore,
             backup_commands::backup_save_settings,
             backup_commands::backup_save_keys,

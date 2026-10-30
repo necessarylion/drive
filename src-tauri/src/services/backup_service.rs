@@ -7,7 +7,7 @@ use parking_lot::Mutex;
 
 use crate::config::backup_config::BackupConfig;
 use crate::models::backup::{
-    BackupConnection, BackupPlan, BackupProgress, BackupProvider, BackupState, BackupUpload, Credentials,
+    BackupConnection, BackupFile, BackupPlan, BackupProgress, BackupProvider, BackupState, Credentials,
 };
 use crate::models::drive::{DriveMetadata, SyncState};
 use crate::models::error::{AppError, AppResult};
@@ -16,6 +16,7 @@ use crate::repositories::backup_state_repository::BackupStateRepository;
 use crate::repositories::file_repository::FileRepository;
 use crate::repositories::google_auth_repository::{GoogleAuthRepository, GoogleSignIn};
 use crate::repositories::secret_repository::SecretRepository;
+use crate::services::drive_service::DriveService;
 
 /// Is told when the backup made a step, so the window can show it.
 pub trait BackupObserver: Send + Sync {
@@ -43,9 +44,11 @@ impl Drop for StepGuard<'_> {
     }
 }
 
-/// Copies the drive to the backup provider, and brings it back.
+/// Keeps the drive and the backup the same, in both directions.
 pub struct BackupService {
     root: PathBuf,
+    /// Moves files to the trash when they were removed from the backup.
+    drive: Arc<DriveService>,
     files: Arc<FileRepository>,
     repositories: BackupRepositories,
     google_auth: Arc<GoogleAuthRepository>,
@@ -59,7 +62,7 @@ pub struct BackupService {
 
 impl BackupService {
     pub fn new(
-        root: PathBuf,
+        drive: Arc<DriveService>,
         files: Arc<FileRepository>,
         repositories: BackupRepositories,
         google_auth: Arc<GoogleAuthRepository>,
@@ -69,7 +72,8 @@ impl BackupService {
     ) -> Self {
         let state = Mutex::new(state_store.load());
         Self {
-            root,
+            root: drive.root_folder().to_path_buf(),
+            drive,
             files,
             repositories,
             google_auth,
@@ -114,6 +118,10 @@ impl BackupService {
     }
 
     /// Compares this computer with the backup. Changes nothing.
+    /// A file that is on one side only is new there, unless the last sync saw it on both sides:
+    /// then it was deleted on the other side. When a file changed on both sides, this computer wins.
+    // ponytail: a file changed in the backup between an upload and the next sync counts as not changed,
+    // because its backup date is only read at that next sync. Keep the date from the upload reply to close it.
     pub async fn plan(&self, config: &BackupConfig) -> AppResult<BackupPlan> {
         let _guard = StepGuard { service: self };
         let connection = self.connect(config)?;
@@ -123,51 +131,101 @@ impl BackupService {
         for object in self.repository(config).list(&connection).await? {
             remote.insert(object.key.clone(), object);
         }
+        let listed_keys: BTreeSet<String> = remote.keys().cloned().collect();
 
         let mut plan = BackupPlan {
             connection,
             uploads: Vec::new(),
-            extra_keys: Vec::new(),
+            downloads: Vec::new(),
+            remote_deletes: Vec::new(),
+            local_deletes: Vec::new(),
         };
-        let local_files = self.files.all_files(&self.root);
-        let mut state = self.state.lock();
-        // Forget the files that are gone from this computer.
-        let mut local_keys = BTreeSet::new();
-        for file in &local_files {
-            local_keys.insert(DriveMetadata::key(&file.path));
-        }
-        state.synced_dates.retain(|key, _| local_keys.contains(key));
-
         let prefix = config.key_prefix();
-        for file in local_files {
-            let key = format!("{prefix}{}", self.relative_key(&file.path));
-            // Same rule as "aws s3 sync": upload when the size differs or the local file is newer.
-            let is_current = match remote.remove(&key) {
-                Some(existing) => existing.size == file.size && file.modified <= existing.last_modified,
-                None => false,
+        let mut seen_paths = BTreeSet::new();
+        let mut state = self.state.lock();
+        let BackupState {
+            synced_dates,
+            remote_dates,
+            ..
+        } = &mut *state;
+
+        for file in self.files.all_files(&self.root) {
+            let path_key = DriveMetadata::key(&file.path);
+            seen_paths.insert(path_key.clone());
+            let step = BackupFile {
+                key: format!("{prefix}{}", self.relative_key(&file.path)),
+                file: file.path,
+                modified: file.modified,
+            };
+            let base = synced_dates.get(&path_key).copied();
+            let local_changed = base.is_none_or(|date| file.modified > date);
+            let Some(object) = remote.remove(&step.key) else {
+                if local_changed {
+                    plan.uploads.push(step);
+                } else {
+                    plan.local_deletes.push(step);
+                }
+                continue;
+            };
+            let remote_changed = remote_dates
+                .get(&step.key)
+                .is_some_and(|date| object.last_modified > *date);
+            let is_current = if base.is_none() {
+                // First time both sides have the file. Same rule as "aws s3 sync": upload when the size
+                // differs or the local file is newer.
+                object.size == file.size && file.modified <= object.last_modified
+            } else {
+                !local_changed && !remote_changed
             };
             if is_current {
-                state.synced_dates.insert(DriveMetadata::key(&file.path), file.modified);
+                synced_dates.insert(path_key, file.modified);
+                remote_dates.insert(step.key, object.last_modified);
+            } else if local_changed {
+                plan.uploads.push(step);
             } else {
-                plan.uploads.push(BackupUpload {
-                    file: file.path,
-                    key,
-                    modified: file.modified,
+                plan.downloads.push(BackupFile {
+                    modified: object.last_modified,
+                    ..step
                 });
             }
         }
-        drop(state);
-        // Keys that end with "/" are folder markers made by the provider's website. Leave them.
-        for key in remote.into_keys() {
-            if !key.ends_with('/') {
-                plan.extra_keys.push(key);
+
+        for object in remote.into_values() {
+            // Keys that end with "/" are folder markers made by the provider's website. Leave them.
+            if object.key.ends_with('/') {
+                continue;
+            }
+            // A key is outside data. Refuse it when it could write outside the drive.
+            let Some(file) = object
+                .key
+                .strip_prefix(&prefix)
+                .and_then(|relative| self.local_path(relative))
+            else {
+                continue;
+            };
+            let path_key = DriveMetadata::key(&file);
+            seen_paths.insert(path_key.clone());
+            let remote_changed = remote_dates
+                .get(&object.key)
+                .is_some_and(|date| object.last_modified > *date);
+            let step = BackupFile {
+                file,
+                key: object.key,
+                modified: object.last_modified,
+            };
+            if synced_dates.contains_key(&path_key) && !remote_changed {
+                plan.remote_deletes.push(step);
+            } else {
+                plan.downloads.push(step);
             }
         }
-        plan.extra_keys.sort();
+        // Forget the files that are gone from both sides.
+        synced_dates.retain(|key, _| seen_paths.contains(key));
+        remote_dates.retain(|key, _| listed_keys.contains(key));
         Ok(plan)
     }
 
-    pub async fn run(&self, plan: &BackupPlan, remove_extras: bool) -> AppResult<()> {
+    pub async fn run(&self, plan: &BackupPlan) -> AppResult<()> {
         let _guard = StepGuard { service: self };
         let remote = self.repository(&plan.connection.config);
         let total = plan.uploads.len();
@@ -187,12 +245,27 @@ impl BackupService {
                 self.upload_files(plan, &next),
             )?;
         }
-        if !remove_extras {
-            return Ok(());
+        for (index, step) in plan.downloads.iter().enumerate() {
+            self.set_progress(&format!("Downloading {} of {}", index + 1, plan.downloads.len()));
+            // The local file changed after the plan was made. It goes up at the next sync instead.
+            if !self.is_unchanged(&step.file) {
+                continue;
+            }
+            self.download(&remote, &step.key, &step.file, step.modified, &plan.connection)
+                .await?;
+            self.remember(plan, step, true);
         }
-        for (index, key) in plan.extra_keys.iter().enumerate() {
-            self.set_progress(&format!("Removing {} of {}", index + 1, plan.extra_keys.len()));
-            remote.delete(key, &plan.connection).await?;
+        for (index, step) in plan.remote_deletes.iter().enumerate() {
+            self.set_progress(&format!("Removing {} of {}", index + 1, plan.remote_deletes.len()));
+            remote.delete(&step.key, &plan.connection).await?;
+            self.remember(plan, step, false);
+        }
+        for step in &plan.local_deletes {
+            // Only a file that did not change since the last sync. The trash keeps it for 30 days.
+            if self.is_unchanged(&step.file) {
+                self.drive.trash(std::slice::from_ref(&step.file))?;
+                self.remember(plan, step, false);
+            }
         }
         Ok(())
     }
@@ -216,6 +289,8 @@ impl BackupService {
             let mut state = self.state.lock();
             if plan.connection.config.destination() == state.destination {
                 state.synced_dates.insert(path_key, upload.modified);
+                // The backup gave the file a new date. The next sync reads it.
+                state.remote_dates.remove(&upload.key);
             }
         }
         Ok(())
@@ -243,23 +318,13 @@ impl BackupService {
 
             count += 1;
             self.set_progress(&format!("Downloading file {count}"));
-            if let Some(folder) = destination.parent() {
-                self.files.create_folder(folder)?;
-            }
-            // Download next to the real place, under a hidden name. Give it the real name when it is all there.
-            let name = destination.file_name().unwrap_or_default().to_string_lossy();
-            let draft = destination.with_file_name(format!(".{name}.part"));
-            if let Err(error) = remote.download(&object.key, &draft, &connection).await {
-                let _ = self.files.delete(&draft);
-                return Err(error);
-            }
-            self.files.move_item(&draft, &destination)?;
-            // Keep the backup date, so the next backup does not upload the file again.
-            self.files.set_modified(object.last_modified, &destination)?;
+            self.download(&remote, &object.key, &destination, object.last_modified, &connection)
+                .await?;
             let mut state = self.state.lock();
             state
                 .synced_dates
                 .insert(DriveMetadata::key(&destination), object.last_modified);
+            state.remote_dates.insert(object.key, object.last_modified);
         }
         Ok(count)
     }
@@ -347,6 +412,59 @@ impl BackupService {
             path.push(part);
         }
         Some(path)
+    }
+
+    /// Downloads next to the real place, under a hidden name, and gives it the real name when it is all there.
+    /// So a stop in the middle never leaves half a file. Replaces a local file with the same name.
+    async fn download(
+        &self,
+        remote: &Arc<dyn BackupRepository>,
+        key: &str,
+        destination: &Path,
+        modified: i64,
+        connection: &BackupConnection,
+    ) -> AppResult<()> {
+        if let Some(folder) = destination.parent() {
+            self.files.create_folder(folder)?;
+        }
+        let name = destination.file_name().unwrap_or_default().to_string_lossy();
+        let draft = destination.with_file_name(format!(".{name}.part"));
+        if let Err(error) = remote.download(key, &draft, connection).await {
+            let _ = self.files.delete(&draft);
+            return Err(error);
+        }
+        self.files.move_item(&draft, destination)?;
+        // Keep the backup date, so the next sync does not upload the file again.
+        self.files.set_modified(modified, destination)
+    }
+
+    /// True when the file is missing, or did not change since the last sync.
+    fn is_unchanged(&self, path: &Path) -> bool {
+        let Some(item) = self.files.item(path) else {
+            return true;
+        };
+        let state = self.state.lock();
+        state
+            .synced_dates
+            .get(&DriveMetadata::key(path))
+            .is_some_and(|date| item.modified <= *date)
+    }
+
+    /// Writes down that the file is now the same in both places, or gone from both.
+    /// Not when the settings changed while the sync ran: then the step went to the old place.
+    fn remember(&self, plan: &BackupPlan, step: &BackupFile, is_in_both: bool) {
+        let mut state = self.state.lock();
+        if plan.connection.config.destination() != state.destination {
+            return;
+        }
+        let path_key = DriveMetadata::key(&step.file);
+        if is_in_both {
+            state.synced_dates.insert(path_key, step.modified);
+            state.remote_dates.insert(step.key.clone(), step.modified);
+        } else {
+            state.synced_dates.remove(&path_key);
+            state.remote_dates.remove(&step.key);
+        }
     }
 
     fn set_progress(&self, text: &str) {

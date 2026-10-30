@@ -16,13 +16,8 @@ export class BackupRepository {
     return this.gateway.invoke('backup_toggle_pause');
   }
 
-  /** Returns how many files are only in the backup. When it is not 0, call `finish` to go on. */
   backUp() {
     return this.gateway.invoke('backup_now');
-  }
-
-  finish(removeExtras) {
-    return this.gateway.invoke('backup_finish', { removeExtras });
   }
 
   restore() {
