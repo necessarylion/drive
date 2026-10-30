@@ -41,6 +41,11 @@ impl AppConstants {
     pub const AWS_REGION_KEY: &'static str = "aws.region";
     pub const AWS_PAUSED_KEY: &'static str = "aws.paused";
     pub const STORAGE_ROOT_KEY: &'static str = "storage.root";
+    /// "true" once Drive added itself to the apps that start at login. Then it never adds itself again,
+    /// so a user who removed it in the system settings keeps it removed.
+    pub const LOGIN_START_KEY: &'static str = "app.startAtLogin";
+    /// Given when Drive starts at login. Then it starts without a window and only syncs.
+    pub const HIDDEN_ARG: &'static str = "--hidden";
     /// The same name the Swift app used, so keys saved by it on a Mac are still found.
     pub const KEYCHAIN_SERVICE: &'static str = "com.zinkyaw.drive.aws";
     pub const AWS_DEFAULT_REGION: &'static str = "us-east-1";

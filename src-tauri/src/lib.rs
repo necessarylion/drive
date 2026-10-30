@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tauri::{App, AppHandle, Emitter, Manager, RunEvent, Window, WindowEvent};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 use crate::app_menu::AppMenu;
 use crate::commands::{backup_commands, drive_commands, settings_commands, update_commands};
@@ -106,11 +107,27 @@ impl AppContainer {
         let backup = Arc::new(BackupController::new(backup_service, settings.clone(), observer));
         app.manage(backup.clone());
         tauri::async_runtime::spawn(Self::keep_in_sync(backup));
-        app.manage(Arc::new(SettingsController::new(settings, default_root)));
+        app.manage(Arc::new(SettingsController::new(settings.clone(), default_root)));
         app.manage(Arc::new(UpdateController::new(app.handle().clone())));
         AppMenu::install(app)?;
         TrayMenu::install(app)?;
+        Self::start_at_login(app, &settings);
+        // The window is hidden in tauri.conf.json, so a start at login shows nothing. The page still loads.
+        if !std::env::args().any(|arg| arg == AppConstants::HIDDEN_ARG) {
+            AppMenu::show_window(app.handle());
+        }
         Ok(())
+    }
+
+    /// Adds Drive to the apps that start at login, once. So the sync also runs after a restart.
+    // ponytail: no switch in Settings. The user can remove Drive from the login items of the system.
+    fn start_at_login(app: &App, settings: &SettingsRepository) {
+        if settings.get(AppConstants::LOGIN_START_KEY).is_some() {
+            return;
+        }
+        if app.autolaunch().enable().is_ok() {
+            settings.set(AppConstants::LOGIN_START_KEY, "true");
+        }
     }
 
     /// Deletes old items from the trash when the app starts, and then again and again while it runs.
@@ -165,6 +182,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec![AppConstants::HIDDEN_ARG]),
+        ))
         .setup(AppContainer::install)
         .on_window_event(AppContainer::keep_alive)
         .invoke_handler(tauri::generate_handler![
