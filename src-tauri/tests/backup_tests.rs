@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use common::TempFolder;
+use drive_lib::config::app_config::AppConfig;
 use drive_lib::config::backup_config::BackupConfig;
 use drive_lib::constants::AppConstants;
 use drive_lib::models::backup::{BackupConnection, BackupProvider, BackupState, Credentials, RemoteObject};
@@ -19,12 +20,14 @@ use drive_lib::repositories::file_repository::FileRepository;
 use drive_lib::repositories::google_auth_repository::GoogleAuthRepository;
 use drive_lib::repositories::google_drive_repository::GoogleDriveRepository;
 use drive_lib::repositories::http_transport::{HttpReply, HttpTransport};
+use drive_lib::repositories::metadata_repository::MetadataRepository;
 use drive_lib::repositories::part_upload::{PartTarget, PartUpload};
 use drive_lib::repositories::s3_repository::S3Repository;
 use drive_lib::repositories::secret_repository::SecretRepository;
 use drive_lib::repositories::settings_repository::SettingsRepository;
 use drive_lib::services::aws_signer::{AwsSigner, SigningRequest};
 use drive_lib::services::backup_service::{BackupObserver, BackupRepositories, BackupService};
+use drive_lib::services::drive_service::DriveService;
 use parking_lot::Mutex;
 
 // The example keys and results below come from the AWS Signature Version 4 documentation for S3.
@@ -106,6 +109,17 @@ impl BackupRepository for FolderBackup {
     }
 }
 
+impl FolderBackup {
+    fn list_keys(&self) -> Vec<String> {
+        let mut keys = Vec::new();
+        for entry in std::fs::read_dir(self.folder.path()).unwrap() {
+            keys.push(entry.unwrap().file_name().to_string_lossy().replace("__", "/"));
+        }
+        keys.sort();
+        keys
+    }
+}
+
 fn signer() -> Arc<AwsSigner> {
     Arc::new(AwsSigner::new())
 }
@@ -130,9 +144,12 @@ fn backup_service(root: &Path, s3: Arc<dyn BackupRepository>, secrets: Arc<Memor
         azure: Arc::new(AzureRepository::new(signer(), http.clone())),
         google: Arc::new(GoogleDriveRepository::new(auth.clone(), signer(), http)),
     };
+    let config = AppConfig::new(root.to_path_buf());
+    let metadata = Arc::new(MetadataRepository::new(config.metadata_file()));
+    let files = Arc::new(FileRepository::new());
     BackupService::new(
-        root.join("Files"),
-        Arc::new(FileRepository::new()),
+        Arc::new(DriveService::new(config, files.clone(), metadata)),
+        files,
         repositories,
         auth,
         secrets,
@@ -273,20 +290,6 @@ async fn backs_up_and_restores() {
     std::fs::write(remote.file("mac/../evil.txt"), "evil").unwrap();
     std::fs::write(remote.file("mac//empty-part.txt"), "evil").unwrap();
 
-    let plan = service.plan(&config).await.unwrap();
-    assert_eq!(plan.uploads.len(), 1);
-    assert_eq!(plan.uploads[0].key, "mac/Docs/a.txt");
-    assert_eq!(plan.extra_keys.len(), 3);
-
-    // The automatic backup uploads, and removes nothing.
-    service.run(&plan, false).await.unwrap();
-    assert!(remote.file("mac/Docs/a.txt").exists());
-    assert!(remote.file("mac/only-remote.txt").exists());
-    let local = root.join("Docs").join("a.txt");
-    let modified = FileRepository::new().item(&local).unwrap().modified;
-    assert_eq!(service.state_of(&local, modified), SyncState::Synced);
-    assert_eq!(service.test_connection(&config).await.unwrap(), 4);
-
     // Restore brings back the missing file, and nothing from outside the drive.
     assert_eq!(service.restore(&config).await.unwrap(), 1);
     assert_eq!(std::fs::read_to_string(root.join("only-remote.txt")).unwrap(), "remote");
@@ -294,12 +297,73 @@ async fn backs_up_and_restores() {
     assert!(!root.join("evil.txt").exists());
     assert!(!root.join("empty-part.txt").exists());
 
-    // Now only the two bad keys are extra. The manual backup may remove them.
     let plan = service.plan(&config).await.unwrap();
-    assert_eq!(plan.uploads.len(), 0);
-    assert_eq!(plan.extra_keys.len(), 2);
-    service.run(&plan, true).await.unwrap();
-    assert_eq!(service.test_connection(&config).await.unwrap(), 2);
+    assert_eq!(plan.uploads.len(), 1);
+    assert_eq!(plan.uploads[0].key, "mac/Docs/a.txt");
+    assert!(plan.downloads.is_empty());
+    service.run(&plan).await.unwrap();
+    assert!(remote.file("mac/Docs/a.txt").exists());
+    let local = root.join("Docs").join("a.txt");
+    let modified = FileRepository::new().item(&local).unwrap().modified;
+    assert_eq!(service.state_of(&local, modified), SyncState::Synced);
+    // The bad keys are left alone.
+    assert_eq!(service.test_connection(&config).await.unwrap(), 4);
+}
+
+#[tokio::test]
+async fn syncs_both_ways() {
+    let temp = TempFolder::new();
+    let root = temp.path().join("Files");
+    std::fs::create_dir_all(&root).unwrap();
+    let remote = Arc::new(FolderBackup {
+        folder: TempFolder::new(),
+    });
+    let secrets = Arc::new(MemorySecrets::default());
+    secrets
+        .save(&Credentials::new("AKIAEXAMPLE", "secret"), BackupProvider::S3)
+        .unwrap();
+    let service = backup_service(temp.path(), remote.clone(), secrets);
+    let config = config(BackupProvider::S3, "my-backup");
+    let sync = async || service.run(&service.plan(&config).await.unwrap()).await.unwrap();
+
+    // A new file goes up.
+    std::fs::write(root.join("a.txt"), "hello").unwrap();
+    sync().await;
+    assert_eq!(remote.list_keys(), ["a.txt"]);
+
+    // A rename leaves one file in the backup, not two.
+    std::fs::rename(root.join("a.txt"), root.join("b.txt")).unwrap();
+    sync().await;
+    assert_eq!(remote.list_keys(), ["b.txt"]);
+
+    // A file that is new in the backup comes down.
+    std::fs::write(remote.file("Docs/c.txt"), "from another computer").unwrap();
+    sync().await;
+    assert_eq!(
+        std::fs::read_to_string(root.join("Docs").join("c.txt")).unwrap(),
+        "from another computer"
+    );
+
+    // A file removed from the backup goes to the trash here, and is not uploaded again.
+    std::fs::remove_file(remote.file("b.txt")).unwrap();
+    sync().await;
+    assert!(!root.join("b.txt").exists());
+    assert_eq!(std::fs::read_dir(temp.path().join("Trash")).unwrap().count(), 1);
+    assert_eq!(remote.list_keys(), ["Docs/c.txt"]);
+
+    // A file changed in the backup replaces the local copy.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(remote.file("Docs/c.txt"), "changed there").unwrap();
+    sync().await;
+    assert_eq!(
+        std::fs::read_to_string(root.join("Docs").join("c.txt")).unwrap(),
+        "changed there"
+    );
+
+    // A file deleted here is removed from the backup.
+    std::fs::remove_file(root.join("Docs").join("c.txt")).unwrap();
+    sync().await;
+    assert_eq!(remote.list_keys().len(), 0);
 }
 
 #[test]

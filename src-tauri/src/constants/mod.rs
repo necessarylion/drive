@@ -14,6 +14,8 @@ impl AppConstants {
     pub const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
     /// How often the app looks for old items in the trash while it runs.
     pub const TRASH_CHECK_SECONDS: u64 = 60 * 60;
+    /// How often the app syncs with the backup while it runs, to get the changes made somewhere else.
+    pub const SYNC_CHECK_SECONDS: u64 = 5 * 60;
 
     /// A big file goes to the backup in parts of this size. Google wants a multiple of 256 KB,
     /// and S3 wants 5 MB or more.
@@ -39,6 +41,11 @@ impl AppConstants {
     pub const AWS_REGION_KEY: &'static str = "aws.region";
     pub const AWS_PAUSED_KEY: &'static str = "aws.paused";
     pub const STORAGE_ROOT_KEY: &'static str = "storage.root";
+    /// "true" once Drive added itself to the apps that start at login. Then it never adds itself again,
+    /// so a user who removed it in the system settings keeps it removed.
+    pub const LOGIN_START_KEY: &'static str = "app.startAtLogin";
+    /// Given when Drive starts at login. Then it starts without a window and only syncs.
+    pub const HIDDEN_ARG: &'static str = "--hidden";
     /// The same name the Swift app used, so keys saved by it on a Mac are still found.
     pub const KEYCHAIN_SERVICE: &'static str = "com.zinkyaw.drive.aws";
     pub const AWS_DEFAULT_REGION: &'static str = "us-east-1";

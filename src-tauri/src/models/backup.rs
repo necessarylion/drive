@@ -79,21 +79,28 @@ impl RemoteObject {
     pub const UNKNOWN_DATE: i64 = i64::MIN;
 }
 
+/// One file of a plan: where it is on this computer, and where it is in the backup.
 #[derive(Clone)]
-pub struct BackupUpload {
+pub struct BackupFile {
     pub file: PathBuf,
     pub key: String,
-    /// The file's change date when the plan was made.
+    /// The change date when the plan was made: of the local file for an upload or a local delete,
+    /// of the backup copy for a download.
     pub modified: i64,
 }
 
-/// What a backup will do. Made first, so the user can be asked before anything is removed.
+/// What one sync will do. `BackupService::plan` makes it and `BackupService::run` does it.
 #[derive(Clone)]
 pub struct BackupPlan {
     pub connection: BackupConnection,
-    pub uploads: Vec<BackupUpload>,
-    /// Objects in the backup that have no file on this computer.
-    pub extra_keys: Vec<String>,
+    /// Files that are new or changed on this computer.
+    pub uploads: Vec<BackupFile>,
+    /// Files that are new or changed in the backup.
+    pub downloads: Vec<BackupFile>,
+    /// Files that were deleted or renamed on this computer. They are removed from the backup.
+    pub remote_deletes: Vec<BackupFile>,
+    /// Files that were removed from the backup. They go to the trash on this computer.
+    pub local_deletes: Vec<BackupFile>,
 }
 
 /// What is known to be in the backup. It is saved to a file, so the backup icons are right when the app starts.
@@ -103,7 +110,12 @@ pub struct BackupState {
     /// Where the backup goes, like `s3://bucket/folder/`. The dates are only true for this place.
     pub destination: String,
     /// File path -> the change date that is known to be in the backup.
+    /// A path here was in both places after the last sync. So a path that is missing on one side now
+    /// was deleted there, and is not new on the other side.
     pub synced_dates: BTreeMap<String, i64>,
+    /// Backup key -> the date the backup gave that file at the last sync. A later date means
+    /// it was changed in the backup. Missing right after an upload, until the next sync reads it.
+    pub remote_dates: BTreeMap<String, i64>,
 }
 
 /// The current step of a backup, for the window to show.

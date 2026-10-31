@@ -47,7 +47,7 @@ impl TrayMenu {
         let backup = app.state::<Arc<BackupController>>();
         match event.id().as_ref() {
             Self::OPEN => AppMenu::show_window(app),
-            // This one uploads new and changed files. It never removes anything from the backup.
+            // The same sync as after each change: both ways, without asking.
             Self::BACK_UP => backup.auto_back_up(),
             Self::PAUSE => backup.toggle_pause(),
             Self::FILES => {

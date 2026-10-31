@@ -27,15 +27,9 @@ pub async fn backup_toggle_pause(backup: Backup<'_>) -> AppResult<()> {
     Ok(())
 }
 
-/// Returns how many files are only in the backup. See `BackupController::back_up`.
 #[tauri::command]
-pub async fn backup_now(backup: Backup<'_>) -> AppResult<usize> {
+pub async fn backup_now(backup: Backup<'_>) -> AppResult<()> {
     backup.back_up().await
-}
-
-#[tauri::command]
-pub async fn backup_finish(backup: Backup<'_>, remove_extras: bool) -> AppResult<()> {
-    backup.finish_backup(remove_extras).await
 }
 
 #[tauri::command]
